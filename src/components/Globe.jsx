@@ -4,7 +4,6 @@ import * as THREE from "three";
 import { findFeature, getCountryLatLon } from "../data/countryCoords";
 import { SEV_COLORS, TEX_SETS } from "../config/constants";
 
-// Reverted to original working formula - only coords were wrong, not the projection
 function ll2v(lat, lon, r = 1) {
   const phi   = (90 - lat)  * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
