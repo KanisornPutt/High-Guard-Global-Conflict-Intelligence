@@ -3,8 +3,9 @@ import Globe from "./components/Globe";
 import CountryPanel from "./components/CountryPanel";
 import StatsBar from "./components/StatsBar";
 import FilterBar from "./components/FilterBar";
-import { MOCK_COUNTRIES, MOCK_ARTICLES, MOCK_COUNTRY_SUMMARIES } from "./data/mockData";
-import { API_BASE, COUNTRY_REFRESH_MS } from "./config/constants";
+import { MOCK_COUNTRIES } from "./data/mockData";
+import { COUNTRY_REFRESH_MS } from "./config/constants";
+import { getCountries, getCountryEvents, getCountrySummary } from "./api/warApi";
 
 export default function App() {
   const [countries, setCountries] = useState(MOCK_COUNTRIES);
@@ -16,16 +17,9 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false);
 
   const fetchCountries = useCallback(async () => {
-    try {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/countries`);
-        const data = await res.json();
-        setCountries(data);
-      }
-    } catch {
-      setCountries(MOCK_COUNTRIES);
-    }
-  }, [API_BASE]);
+    const data = await getCountries();
+    setCountries(data);
+  }, []);
 
   useEffect(() => {
     fetchCountries();
@@ -41,27 +35,16 @@ export default function App() {
     setCountrySummary(null);
 
     try {
-      if (API_BASE) {
-        const [artRes, sumRes] = await Promise.all([
-          fetch(`${API_BASE}/events?country=${encodeURIComponent(country.name)}`),
-          fetch(`${API_BASE}/summary/country?country=${encodeURIComponent(country.name)}`),
-        ]);
-        const artData = await artRes.json();
-        const sumData = await sumRes.json();
-        setArticles(artData);
-        setCountrySummary(sumData);
-      } else {
-        await new Promise((r) => setTimeout(r, 600));
-        setArticles(MOCK_ARTICLES[country.name] || MOCK_ARTICLES["Ukraine"]);
-        setCountrySummary(MOCK_COUNTRY_SUMMARIES[country.name] || MOCK_COUNTRY_SUMMARIES["Ukraine"]);
-      }
-    } catch {
-      setArticles(MOCK_ARTICLES["Ukraine"]);
-      setCountrySummary(MOCK_COUNTRY_SUMMARIES["Ukraine"]);
+      const [articleData, summaryData] = await Promise.all([
+        getCountryEvents(country.name),
+        getCountrySummary(country.name),
+      ]);
+      setArticles(articleData);
+      setCountrySummary(summaryData);
     } finally {
       setLoadingArticles(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   const closePanel = () => {
     setPanelOpen(false);
