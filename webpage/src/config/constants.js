@@ -45,5 +45,8 @@ export const COUNTRY_SUMMARY_PATH = import.meta.env.VITE_COUNTRY_SUMMARY_PATH ||
 export const COUNTRY_OVERVIEW_PATH =
   import.meta.env.VITE_COUNTRY_OVERVIEW_PATH ||
   "/country-overview";
+export const COUNTRY_NEWS_PATH =
+  import.meta.env.VITE_COUNTRY_NEWS_PATH ||
+  "/country-news";
 
 export const COUNTRY_REFRESH_MS = 15 * 60 * 1000;

@@ -53,8 +53,8 @@ export function FilterBar({ filters, onChange }) {
           {s}
         </button>
       ))}
-      <span className="filter-divider" />
-      <span className="filter-label">Category</span>
+      {/* <span className="filter-divider" /> */}
+      {/* <span className="filter-label">Category</span>
       <div className="cat-select-wrap">
         <select
           className="cat-select"
@@ -65,7 +65,7 @@ export function FilterBar({ filters, onChange }) {
             <option key={c} value={c}>{c === "all" ? "All categories" : c}</option>
           ))}
         </select>
-      </div>
+      </div> */}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   COUNTRY_SUMMARY_LAMBDA_URL,
   COUNTRY_SUMMARY_PATH,
   COUNTRY_OVERVIEW_PATH,
+  COUNTRY_NEWS_PATH,
 } from "../config/constants";
 import { COUNTRY_COORDS } from "../data/countryCoords";
 
@@ -306,6 +307,49 @@ async function fetchCountryOverviewFromLambda() {
   }
 }
 
+async function fetchCountryNewsFromLambda(countryName) {
+  if (!COUNTRY_SUMMARY_LAMBDA_URL) {
+    return { ok: false, notFound: true, data: null, error: "Lambda base URL is not configured" };
+  }
+
+  try {
+    const encodedCountry = encodeURIComponent(countryName);
+    const path = `${COUNTRY_NEWS_PATH}?country=${encodedCountry}`;
+    const res = await fetch(buildLambdaUrl(COUNTRY_SUMMARY_LAMBDA_URL, path), {
+      method: "GET",
+    });
+
+    if (res.status === 404) {
+      return { ok: false, notFound: true, data: null, error: "Country news endpoint was not found" };
+    }
+
+    if (!res.ok) {
+      return { ok: false, notFound: false, data: null, error: `Country news request failed (${res.status})` };
+    }
+
+    const rawText = await res.text();
+    const parsed = parseLambdaPayload(rawText);
+    if (!parsed.ok) {
+      return { ok: false, notFound: false, data: null, error: parsed.error };
+    }
+
+    const data = parsed.data;
+    const bodyStatusCode = Number(data?.statusCode);
+    if (Number.isFinite(bodyStatusCode) && bodyStatusCode >= 400) {
+      return {
+        ok: false,
+        notFound: bodyStatusCode === 404,
+        data: null,
+        error: data?.message || `Country news returned statusCode ${bodyStatusCode}`,
+      };
+    }
+
+    return { ok: hasData(data), notFound: !hasData(data), data };
+  } catch {
+    return { ok: false, notFound: false, data: null, error: "Country news request failed (network/CORS)" };
+  }
+}
+
 export async function getCountries() {
   const overviewResult = await fetchCountryOverviewFromLambda();
   if (overviewResult.ok) {
@@ -331,6 +375,17 @@ export async function getCountries() {
 }
 
 export async function getCountryEvents(countryName) {
+  const lambdaResult = await fetchCountryNewsFromLambda(countryName);
+
+  if (lambdaResult.ok) {
+    const rawEvents = ensureArray(lambdaResult.data, ["articles", "events", "items", "data"]);
+    const normalized = rawEvents
+      .map(normalizeArticleRecord)
+      .filter(Boolean);
+
+    if (normalized.length > 0) return normalized;
+  }
+
   const encodedCountry = encodeURIComponent(countryName);
   const result = await fetchJson(`/events?country=${encodedCountry}`);
 
