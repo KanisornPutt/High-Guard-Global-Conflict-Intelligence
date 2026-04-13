@@ -4,10 +4,7 @@ import {
   COUNTRY_SUMMARY_PATH,
   COUNTRY_OVERVIEW_PATH,
 } from "../config/constants";
-import { MOCK_ARTICLES, MOCK_COUNTRIES, MOCK_COUNTRY_SUMMARIES } from "../data/mockData";
 import { COUNTRY_COORDS } from "../data/countryCoords";
-
-const DEFAULT_COUNTRY = "Ukraine";
 
 const CATEGORY_LABELS = {
   armed_conflict: "Armed Conflict",
@@ -17,12 +14,9 @@ const CATEGORY_LABELS = {
   civil_war: "Civil War",
   civil_unrest: "Civil Unrest",
   insurgency: "Insurgency",
+  war: "War",
   other: "Other",
 };
-
-function getCountryFallbackRecord(record, countryName) {
-  return record[countryName] || record[DEFAULT_COUNTRY];
-}
 
 function hasData(payload) {
   if (payload == null) return false;
@@ -140,6 +134,8 @@ function normalizeCountrySummary(summary, countryName) {
     return {
       country: summary.country || countryName,
       trend: "stable",
+      topCategory: "Other",
+      severity: "low",
       overallSituation: String(summary.message),
       topEvents: [],
       lastUpdated: "",
@@ -152,6 +148,8 @@ function normalizeCountrySummary(summary, countryName) {
   return {
     country: summary.country || countryName,
     trend: normalizeTrend(summary.trend),
+    topCategory: normalizeCategory(summary.topCategory ?? summary.dominant_category ?? summary.category),
+    severity: normalizeSeverity(summary.severity ?? summary.overallSeverity ?? summary.overall_severity),
     overallSituation: summary.overallSituation || summary.situation_summary || "",
     topEvents: summary.topEvents || summary.key_events || [],
     lastUpdated: formatSummaryTime(updatedAt) || timeAgoText(updatedAt),
@@ -183,15 +181,21 @@ function parseLambdaPayload(rawText) {
     return { ok: false, data: null, error: "Lambda response is not valid JSON" };
   }
 
-  const data = typeof parsed?.body === "string"
-    ? (() => {
-        try {
-          return JSON.parse(parsed.body);
-        } catch {
-          return parsed;
-        }
-      })()
-    : parsed;
+  const data = (() => {
+    if (typeof parsed?.body === "string") {
+      try {
+        return JSON.parse(parsed.body);
+      } catch {
+        return parsed;
+      }
+    }
+
+    if (parsed?.body && typeof parsed.body === "object") {
+      return parsed.body;
+    }
+
+    return parsed;
+  })();
 
   return { ok: true, data, error: "" };
 }
@@ -338,7 +342,7 @@ export async function getCountryEvents(countryName) {
 
     if (normalized.length > 0) return normalized;
   }
-  return getCountryFallbackRecord(MOCK_ARTICLES, countryName);
+  return [];
 }
 
 export async function getCountrySummary(countryName) {
@@ -350,7 +354,8 @@ export async function getCountrySummary(countryName) {
   if (lambdaResult.ok) {
     const rawSummary = Array.isArray(lambdaResult.data)
       ? lambdaResult.data[0]
-      : lambdaResult.data?.result || lambdaResult.data?.summary || lambdaResult.data;
+      : lambdaResult.data?.body?.result || lambdaResult.data?.body?.summary || lambdaResult.data?.body ||
+        lambdaResult.data?.result || lambdaResult.data?.summary || lambdaResult.data;
     const normalized = normalizeCountrySummary(rawSummary, countryName);
     if (normalized) return normalized;
     lambdaError = "Lambda responded, but summary payload was empty";
@@ -373,5 +378,5 @@ export async function getCountrySummary(countryName) {
     throw new Error(lambdaError || "Unable to load country summary from live endpoints");
   }
 
-  return getCountryFallbackRecord(MOCK_COUNTRY_SUMMARIES, countryName);
+  return null;
 }

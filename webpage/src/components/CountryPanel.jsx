@@ -42,6 +42,9 @@ function SkeletonCard() {
 
 export default function CountryPanel({ open, country, summary, articles, loading, error, onClose }) {
   const panelRef = useRef(null);
+  const displaySeverity = summary?.severity || country?.severity;
+  const displayTopCategory = summary?.topCategory || country?.topCategory;
+  const displayTrend = summary?.trend || country?.trend;
 
   useEffect(() => {
     if (open && panelRef.current) panelRef.current.scrollTop = 0;
@@ -54,14 +57,14 @@ export default function CountryPanel({ open, country, summary, articles, loading
         <div className="panel-header-left">
           {country && (
             <>
-              <span className="panel-sev-dot" style={{ background: SEV_COLORS[country.severity] }} />
+              <span className="panel-sev-dot" style={{ background: SEV_COLORS[displaySeverity] }} />
               <div>
                 <h2 className="panel-country-name">{country.name}</h2>
                 <div className="panel-meta-row">
-                  <span className="panel-top-cat">{country.topCategory}</span>
-                  {country.trend && (
-                    <span className="panel-trend" style={{ color: TREND_COLOR[country.trend] }}>
-                      {TREND_ICON[country.trend]} {country.trend}
+                  <span className="panel-top-cat">{displayTopCategory}</span>
+                  {displayTrend && (
+                    <span className="panel-trend" style={{ color: TREND_COLOR[displayTrend] }}>
+                      {TREND_ICON[displayTrend]} {displayTrend}
                     </span>
                   )}
                 </div>

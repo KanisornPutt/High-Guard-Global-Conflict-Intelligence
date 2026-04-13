@@ -9,6 +9,7 @@ export const SEVERITIES = ["critical", "high", "medium", "low"];
 
 export const CATEGORIES = [
   "all",
+  "War",
   "Armed Conflict",
   "Terrorism",
   "Political Unrest",
