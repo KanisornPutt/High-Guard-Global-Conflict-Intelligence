@@ -40,7 +40,7 @@ function SkeletonCard() {
   );
 }
 
-export default function CountryPanel({ open, country, summary, articles, loading, onClose }) {
+export default function CountryPanel({ open, country, summary, articles, loading, error, onClose }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -72,6 +72,12 @@ export default function CountryPanel({ open, country, summary, articles, loading
         <button className="panel-close" onClick={onClose} aria-label="Close panel">✕</button>
       </div>
 
+      {!loading && error && (
+        <div className="panel-error" role="alert">
+          {error}
+        </div>
+      )}
+
       {/* Country summary (O2) */}
       {loading ? (
         <div className="country-summary-box skeleton">
@@ -96,7 +102,12 @@ export default function CountryPanel({ open, country, summary, articles, loading
             </ul>
           )}
         </div>
-      ) : null}
+      ) : (
+        <div className="country-summary-box">
+          <div className="summary-label">Situation overview</div>
+          <p className="summary-text">No summary available for this country yet.</p>
+        </div>
+      )}
 
       {/* Articles (O1) */}
       <div className="articles-section">

@@ -16,9 +16,13 @@ Create a `.env` file in the project root:
 
 ```env
 VITE_API_BASE=https://your-api-gateway-id.execute-api.ap-southeast-1.amazonaws.com/prod
+VITE_COUNTRY_SUMMARY_LAMBDA_URL=https://your-lambda-function-url.lambda-url.ap-southeast-1.on.aws/
 ```
 
-Without this, the app runs with mock data automatically.
+- `VITE_API_BASE` is used for `/countries` and `/events`
+- `VITE_COUNTRY_SUMMARY_LAMBDA_URL` is used to call `countrySummarization` directly with `POST { "country": "..." }`
+
+Without these, the app runs with mock data automatically.
 
 ## API Contract
 
@@ -57,16 +61,35 @@ Returns articles for a specific country (O1 summaries).
 ]
 ```
 
-### GET /summary/country?country=Ukraine
-Returns aggregated country digest (O2 summary from Bedrock).
+### POST countrySummarization Lambda URL
+Request body:
 ```json
 {
+  "country": "Ukraine"
+}
+```
+
+Example response:
+```json
+{
+  "statusCode": 200,
   "country": "Ukraine",
-  "trend": "escalating",
-  "overallSituation": "...",
-  "topEvents": ["Event 1", "Event 2", "Event 3"],
-  "lastUpdated": "14 min ago",
-  "articleCount": 47
+  "action": "returned_existing",
+  "last_updated": "2026-04-05T08:31:33.824108",
+  "result": {
+    "country": "Ukraine",
+    "dominant_category": "armed_conflict",
+    "high_priority_count": 5,
+    "key_events": ["Event 1", "Event 2"],
+    "lastChecked": "2026-04-06T07:12:29.172276",
+    "model": "google.gemma-3-27b-it",
+    "overall_severity": 4,
+    "promptArn": "arn:aws:bedrock:ap-northeast-1:xxxxxxxxxxxx:prompt/XXXX:1",
+    "situation_summary": "...",
+    "total_events": 8,
+    "trend": "escalating",
+    "lastUpdated": "2026-04-05T08:31:33.824108"
+  }
 }
 ```
 

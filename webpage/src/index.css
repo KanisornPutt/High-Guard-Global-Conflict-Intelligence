@@ -285,6 +285,17 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
 }
 .panel-close:hover { border-color: var(--border-bright); color: var(--text-primary); }
 
+.panel-error {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 0.5px solid rgba(232, 57, 58, 0.45);
+  background: rgba(232, 57, 58, 0.1);
+  color: #ffb9ba;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* ─── COUNTRY SUMMARY (O2) ─── */
 .country-summary-box {
   margin: 16px;

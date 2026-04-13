@@ -3,10 +3,11 @@ import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Attr
 
-#  Clients 
+# ─── Clients ──────────────────────────────────────────────────────────────────
 bedrock_agent   = boto3.client("bedrock-agent",   region_name="ap-northeast-1")
 bedrock_runtime = boto3.client("bedrock-runtime", region_name="ap-northeast-1")
 dynamodb        = boto3.resource("dynamodb",       region_name="ap-southeast-1")  # Singapore
@@ -18,7 +19,20 @@ PROMPT_ARN = os.environ.get("COUNTRY_PROMPT_ARN")
 MODEL_ID   = os.environ.get("MODEL_ID", "google.gemma-3-27b-it")
 
 
-#  Prompt Management 
+# ─── Decimal Serializer ───────────────────────────────────────────────────────
+class DecimalEncoder(json.JSONEncoder):
+    """DynamoDB returns Decimals — convert to int or float for JSON."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
+
+
+def json_dumps(obj) -> str:
+    return json.dumps(obj, cls=DecimalEncoder)
+
+
+# ─── Prompt Management ────────────────────────────────────────────────────────
 def get_system_prompt() -> str:
     parts     = PROMPT_ARN.split(":")
     prompt_id = parts[-2].split("/")[-1]
@@ -37,7 +51,7 @@ def get_system_prompt() -> str:
     return template_text
 
 
-#  DynamoDB — Country Summary 
+# ─── DynamoDB — Country Summary ───────────────────────────────────────────────
 def get_existing_country_summary(country: str) -> dict:
     """
     Check if country summary exists in countrySummary table.
@@ -103,7 +117,7 @@ def save_country_summary(country: str, summary: dict) -> None:
     print("✅ Saved country summary for: " + country)
 
 
-#  DynamoDB — News Summary 
+# ─── DynamoDB — News Summary ──────────────────────────────────────────────────
 def get_recent_news(country: str, hours: int = 24) -> list:
     """
     Get all news articles for a country from last N hours
@@ -150,7 +164,7 @@ def check_new_news_after(country: str, after_timestamp: str) -> bool:
     return has_new
 
 
-#  Format Events 
+# ─── Format Events ────────────────────────────────────────────────────────────
 def format_events_for_prompt(events: list) -> str:
     """Format news articles into readable text for Gemma"""
 
@@ -172,7 +186,7 @@ def format_events_for_prompt(events: list) -> str:
     return "\n".join(lines)
 
 
-#  Bedrock Call 
+# ─── Bedrock Call ─────────────────────────────────────────────────────────────
 def call_bedrock(country: str, events: list) -> dict:
     """Call Gemma to generate country intelligence briefing"""
 
@@ -246,24 +260,24 @@ def call_bedrock(country: str, events: list) -> dict:
             raise
 
 
-#  Core Logic 
+# ─── Core Logic ───────────────────────────────────────────────────────────────
 def process_country(country: str) -> dict:
     """
     Smart country summary logic:
 
     1. Check if country summary exists in DB
-       ├ NO  → get last 24h news → summarize → save → return
-       └ YES → check for new news after last update
-                 ├ YES new news → get last 24h news → summarize → save → return
-                 └ NO new news  → update lastChecked → return existing summary
+       ├── NO  → get last 24h news → summarize → save → return
+       └── YES → check for new news after last update
+                 ├── YES new news → get last 24h news → summarize → save → return
+                 └── NO new news  → update lastChecked → return existing summary
     """
 
-    print(" Processing country: " + country)
+    print("─── Processing country: " + country)
 
-    #  Step 1: Check existing summary 
+    # ── Step 1: Check existing summary ────────────────────────────────────────
     existing = get_existing_country_summary(country)
 
-    #  Step 2a: No existing summary — generate fresh 
+    # ── Step 2a: No existing summary — generate fresh ─────────────────────────
     if not existing:
         print("📋 No existing summary — generating fresh summary")
 
@@ -271,29 +285,27 @@ def process_country(country: str) -> dict:
 
         if not news:
             return {
-                "statusCode": 200,
-                "country":    country,
-                "message":    "No news found in last 24h for " + country
+                "country": country,
+                "message": "No news found in last 24h for " + country
             }
 
         summary = call_bedrock(country, news)
         save_country_summary(country, summary)
 
         return {
-            "statusCode":   200,
             "country":      country,
             "action":       "generated_fresh",
             "events_count": len(news),
             "result":       summary
         }
 
-    #  Step 2b: Existing summary found — check for new news 
+    # ── Step 2b: Existing summary found — check for new news ──────────────────
     last_updated = existing.get("lastUpdated", "")
     print("📋 Existing summary found — checking for new news after: " + last_updated)
 
     has_new_news = check_new_news_after(country, last_updated)
 
-    #  Step 3a: New news found — regenerate summary 
+    # ── Step 3a: New news found — regenerate summary ───────────────────────────
     if has_new_news:
         print("🔄 New news found — regenerating summary")
 
@@ -301,55 +313,74 @@ def process_country(country: str) -> dict:
 
         if not news:
             return {
-                "statusCode": 200,
-                "country":    country,
-                "message":    "No news in last 24h despite new articles detected"
+                "country": country,
+                "message": "No news in last 24h despite new articles detected"
             }
 
         summary = call_bedrock(country, news)
         save_country_summary(country, summary)
 
         return {
-            "statusCode":   200,
             "country":      country,
             "action":       "regenerated",
             "events_count": len(news),
             "result":       summary
         }
 
-    #  Step 3b: No new news — return existing and update lastChecked 
+    # ── Step 3b: No new news — return existing and update lastChecked ──────────
     print("✅ No new news — returning existing summary")
     update_last_checked(country, last_updated)
 
     return {
-        "statusCode":  200,
-        "country":     country,
-        "action":      "returned_existing",
+        "country":      country,
+        "action":       "returned_existing",
         "last_updated": last_updated,
-        "result":      existing
+        "result":       existing  # ← contains Decimals — handled by DecimalEncoder
     }
 
 
-#  Lambda Handler 
+# ─── Response Helper ──────────────────────────────────────────────────────────
+def ok(body: dict) -> dict:
+    return {
+        "statusCode": 200,
+        "headers":    {"Content-Type": "application/json"},
+        "body":       json_dumps(body),   # DecimalEncoder handles DynamoDB types
+    }
+
+def err(status: int, message: str) -> dict:
+    return {
+        "statusCode": status,
+        "headers":    {"Content-Type": "application/json"},
+        "body":       json_dumps({"message": message}),
+    }
+
+
+# ─── Lambda Handler ───────────────────────────────────────────────────────────
 def lambda_handler(event, context):
+
+    # ── Unwrap Function URL / API Gateway HTTP body ────────────────────────
+    if "body" in event:
+        try:
+            event = json.loads(event["body"])
+        except (json.JSONDecodeError, TypeError):
+            return err(400, "Invalid JSON body")
 
     records = event.get("Records", [])
 
-    #  Direct Test 
+    # ── Direct Test / Function URL ────────────────────────────────────────
     if not records:
         country = event.get("country", "")
 
         if not country:
-            return {
-                "statusCode": 400,
-                "message":    "Please provide a country in the test event"
-            }
+            return err(400, "Please provide a country in the test event")
 
-        return process_country(country)
+        result = process_country(country)
+        return ok(result)   # ← always wrapped + Decimal-safe
 
-    #  SQS Trigger 
+    # ── SQS Trigger ───────────────────────────────────────────────────────
     success = 0
     failed  = 0
+    country = ""
 
     for record in records:
         try:
@@ -369,4 +400,4 @@ def lambda_handler(event, context):
             raise
 
     print("Done — success: " + str(success) + " failed: " + str(failed))
-    return {"statusCode": 200, "success": success, "failed": failed}
+    return ok({"success": success, "failed": failed})

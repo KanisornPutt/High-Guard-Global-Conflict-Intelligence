@@ -2,17 +2,21 @@ export const SEV_COLORS = {
   critical: "#E8393A",
   high: "#EF9F27",
   medium: "#378ADD",
+  low: "#1D9E75",
 };
 
-export const SEVERITIES = ["critical", "high", "medium"];
+export const SEVERITIES = ["critical", "high", "medium", "low"];
 
 export const CATEGORIES = [
   "all",
   "Armed Conflict",
+  "Terrorism",
+  "Political Unrest",
   "Civil War",
   "Political",
   "Civil Unrest",
   "Insurgency",
+  "Other",
 ];
 
 export const TREND_ICON = {
@@ -35,5 +39,10 @@ export const TEX_SETS = {
 };
 
 export const API_BASE = import.meta.env.VITE_API_BASE || "";
+export const COUNTRY_SUMMARY_LAMBDA_URL = import.meta.env.VITE_COUNTRY_SUMMARY_LAMBDA_URL || "";
+export const COUNTRY_SUMMARY_PATH = import.meta.env.VITE_COUNTRY_SUMMARY_PATH || "/country-summary";
+export const COUNTRY_OVERVIEW_PATH =
+  import.meta.env.VITE_COUNTRY_OVERVIEW_PATH ||
+  "/country-overview";
 
 export const COUNTRY_REFRESH_MS = 15 * 60 * 1000;

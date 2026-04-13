@@ -3,17 +3,17 @@ import Globe from "./components/Globe";
 import CountryPanel from "./components/CountryPanel";
 import StatsBar from "./components/StatsBar";
 import FilterBar from "./components/FilterBar";
-import { MOCK_COUNTRIES } from "./data/mockData";
 import { COUNTRY_REFRESH_MS } from "./config/constants";
 import { getCountries, getCountryEvents, getCountrySummary } from "./api/warApi";
 
 export default function App() {
-  const [countries, setCountries] = useState(MOCK_COUNTRIES);
+  const [countries, setCountries] = useState([]);
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [articles, setArticles] = useState([]);
   const [countrySummary, setCountrySummary] = useState(null);
   const [loadingArticles, setLoadingArticles] = useState(false);
-  const [filters, setFilters] = useState({ severity: ["critical", "high", "medium"], category: "all" });
+  const [panelError, setPanelError] = useState("");
+  const [filters, setFilters] = useState({ severity: ["critical", "high", "medium", "low"], category: "all" });
   const [panelOpen, setPanelOpen] = useState(false);
 
   const fetchCountries = useCallback(async () => {
@@ -31,16 +31,35 @@ export default function App() {
     setSelectedCountry(country);
     setPanelOpen(true);
     setLoadingArticles(true);
+    setPanelError("");
     setArticles([]);
     setCountrySummary(null);
 
     try {
-      const [articleData, summaryData] = await Promise.all([
+      const [articleResult, summaryResult] = await Promise.allSettled([
         getCountryEvents(country.name),
         getCountrySummary(country.name),
       ]);
-      setArticles(articleData);
-      setCountrySummary(summaryData);
+
+      const errors = [];
+
+      if (articleResult.status === "fulfilled") {
+        setArticles(articleResult.value || []);
+      } else {
+        setArticles([]);
+        errors.push("Could not load recent reports.");
+      }
+
+      if (summaryResult.status === "fulfilled") {
+        setCountrySummary(summaryResult.value || null);
+      } else {
+        setCountrySummary(null);
+        errors.push(summaryResult.reason?.message || "Could not load country summary.");
+      }
+
+      if (errors.length) {
+        setPanelError(errors.join(" "));
+      }
     } finally {
       setLoadingArticles(false);
     }
@@ -84,6 +103,7 @@ export default function App() {
           summary={countrySummary}
           articles={articles}
           loading={loadingArticles}
+          error={panelError}
           onClose={closePanel}
         />
       </main>
