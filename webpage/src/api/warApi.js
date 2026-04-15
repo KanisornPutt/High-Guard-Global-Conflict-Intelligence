@@ -86,6 +86,22 @@ function formatSummaryTime(isoString) {
   });
 }
 
+function normalizeCount(...values) {
+  for (const value of values) {
+    if (value == null) continue;
+
+    const numeric = Number(
+      typeof value === "string" ? value.replace(/,/g, "").trim() : value
+    );
+
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, numeric);
+    }
+  }
+
+  return 0;
+}
+
 function normalizeCountryRecord(country) {
   if (!country || typeof country !== "object") return null;
 
@@ -105,7 +121,15 @@ function normalizeCountryRecord(country) {
     lat,
     lon,
     severity: normalizeSeverity(country.severity ?? country.overall_severity),
-    articleCount: country.articleCount ?? country.total_events ?? country.high_priority_count ?? 0,
+    articleCount: normalizeCount(
+      country.articleCount,
+      country.total_events,
+      country.high_priority_count,
+      country.article_count,
+      country.total,
+      country.reports,
+      country.reportCount
+    ),
     topCategory: normalizeCategory(country.topCategory ?? country.dominant_category ?? country.category),
     trend: normalizeTrend(country.trend),
   };
@@ -154,7 +178,15 @@ function normalizeCountrySummary(summary, countryName) {
     overallSituation: summary.overallSituation || summary.situation_summary || "",
     topEvents: summary.topEvents || summary.key_events || [],
     lastUpdated: formatSummaryTime(updatedAt) || timeAgoText(updatedAt),
-    articleCount: summary.articleCount ?? summary.total_events ?? summary.high_priority_count ?? 0,
+    articleCount: normalizeCount(
+      summary.articleCount,
+      summary.total_events,
+      summary.high_priority_count,
+      summary.article_count,
+      summary.total,
+      summary.reports,
+      summary.reportCount
+    ),
   };
 }
 

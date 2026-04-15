@@ -3,7 +3,12 @@ import { CATEGORIES, SEV_COLORS, SEVERITIES } from "../config/constants";
 export default function StatsBar({ countries }) {
   const critical = countries.filter((c) => c.severity === "critical").length;
   const high = countries.filter((c) => c.severity === "high").length;
-  const total = countries.reduce((s, c) => s + (c.articleCount || 0), 0);
+  const total = countries.reduce((s, c) => {
+    const count = Number(
+      typeof c.articleCount === "string" ? c.articleCount.replace(/,/g, "").trim() : c.articleCount
+    );
+    return s + (Number.isFinite(count) ? count : 0);
+  }, 0);
 
   return (
     <div className="stats-bar">

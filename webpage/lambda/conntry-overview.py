@@ -1,19 +1,20 @@
 import json
 import boto3
 import logging
-from boto3.dynamodb.conditions import Attr
+from datetime import datetime, timedelta
+from boto3.dynamodb.conditions import Attr, Key
 from collections import defaultdict
 from decimal import Decimal
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-dynamodb = boto3.resource("dynamodb")
-TABLE_NAME = "newsSummary"  # ← change if your table name differs
+dynamodb      = boto3.resource("dynamodb", region_name="ap-southeast-1")
+news_table    = dynamodb.Table("newsSummary")
+country_table = dynamodb.Table("countrySummary")
 
 # ---------------------------------------------------------------------------
 # Hardcoded country → (lat, lon) lookup
-# Extend this dict as new countries appear in your data.
 # ---------------------------------------------------------------------------
 COUNTRY_COORDINATES: dict[str, tuple[float, float]] = {
     "Afghanistan": (33.9391, 67.7100),
@@ -148,104 +149,155 @@ COUNTRY_COORDINATES: dict[str, tuple[float, float]] = {
     "Zimbabwe": (-19.0154, 29.1549),
 }
 
-# ---------------------------------------------------------------------------
-# Severity aggregation strategy
-#
-# Each article carries a `severity` value (assumed 1-5 integer or string).
-# Per country we compute: max severity seen across all recent articles.
-# Alternatives are easy to swap in (average, weighted sum, etc.).
-# ---------------------------------------------------------------------------
 
 def _to_int(value) -> int | None:
-    """Safely coerce Decimal / str / int → int."""
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
-def aggregate_severity(items: list[dict]) -> dict[str, int]:
-    """Return {country: max_severity} from a list of DynamoDB items."""
-    country_severities: dict[str, list[int]] = defaultdict(list)
-
-    for item in items:
-        country = item.get("country", "").strip()
-        severity = _to_int(item.get("severity"))
-
-        if not country or severity is None:
-            continue
-
-        country_severities[country].append(severity)
-
-    # Strategy: MAX severity per country  ← swap to mean/sum as needed
-    return {c: max(vals) for c, vals in country_severities.items()}
-
-
-def lambda_handler(event, context):
+# ---------------------------------------------------------------------------
+# Source 1: countrySummary — Bedrock-classified severity, updated in last 24h
+# Returns { country: overall_severity }
+# ---------------------------------------------------------------------------
+def get_bedrock_severities(cutoff: str) -> dict[str, int]:
     """
-    GET /country-severity
-    Returns a JSON array of:
-      { country, lat, long, severity }
-    Only countries that exist in COUNTRY_COORDINATES are included.
-    Countries found in DynamoDB but missing from the map are logged.
+    Scan countrySummary for rows where lastUpdated >= cutoff.
+    Multiple rows may exist per country (sort key = lastUpdated),
+    so we keep the most recent one per country.
     """
-    table = dynamodb.Table(TABLE_NAME)
-
-    # ------------------------------------------------------------------
-    # Scan the full table.
-    # For large tables consider adding a FilterExpression on a date GSI
-    # to limit to e.g. the last 30 days.
-    # ------------------------------------------------------------------
-    items: list[dict] = []
-    scan_kwargs: dict = {
-        "ProjectionExpression": "#c, severity",
-        "ExpressionAttributeNames": {"#c": "country"},  # 'country' is reserved
+    items   = []
+    kwargs  = {
+        "FilterExpression": Attr("lastUpdated").gte(cutoff),
+        "ProjectionExpression": "#c, lastUpdated, overall_severity",
+        "ExpressionAttributeNames": {"#c": "country"},
     }
 
     while True:
-        response = table.scan(**scan_kwargs)
+        response = country_table.scan(**kwargs)
         items.extend(response.get("Items", []))
         last_key = response.get("LastEvaluatedKey")
         if not last_key:
             break
-        scan_kwargs["ExclusiveStartKey"] = last_key
+        kwargs["ExclusiveStartKey"] = last_key
 
-    logger.info("Scanned %d items from %s", len(items), TABLE_NAME)
+    logger.info("countrySummary: %d rows in last 24h", len(items))
 
-    aggregated = aggregate_severity(items)
+    # Keep only the most recent entry per country
+    latest: dict[str, dict] = {}
+    for item in items:
+        country = item.get("country", "").strip()
+        if not country:
+            continue
+        existing = latest.get(country)
+        if existing is None or item.get("lastUpdated", "") > existing.get("lastUpdated", ""):
+            latest[country] = item
 
-    result: list[dict] = []
+    result = {}
+    for country, item in latest.items():
+        severity = _to_int(item.get("overall_severity"))
+        if severity is not None:
+            result[country] = severity
+
+    logger.info("Bedrock-classified countries: %s", list(result.keys()))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Source 2: newsSummary — max article-level severity for remaining countries
+# Returns { country: max_severity } — only for countries NOT in bedrock_countries
+# ---------------------------------------------------------------------------
+def get_estimated_severities(cutoff: str, skip_countries: set[str]) -> dict[str, int]:
+    """
+    Scan newsSummary for articles in last 24h.
+    Only aggregate countries that weren't covered by countrySummary.
+    """
+    items  = []
+    kwargs = {
+        "FilterExpression": Attr("timeStamp").gte(cutoff),
+        "ProjectionExpression": "#c, severity",
+        "ExpressionAttributeNames": {"#c": "country"},
+    }
+
+    while True:
+        response = news_table.scan(**kwargs)
+        items.extend(response.get("Items", []))
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        kwargs["ExclusiveStartKey"] = last_key
+
+    logger.info("newsSummary: %d articles in last 24h", len(items))
+
+    country_severities: dict[str, list[int]] = defaultdict(list)
+    for item in items:
+        country  = item.get("country", "").strip()
+        severity = _to_int(item.get("severity"))
+
+        if not country or severity is None:
+            continue
+        if country in skip_countries:
+            continue   # already have a better Bedrock value
+
+        country_severities[country].append(severity)
+
+    result = {c: max(vals) for c, vals in country_severities.items()}
+    logger.info("Estimated countries (from news): %s", list(result.keys()))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Lambda Handler
+# ---------------------------------------------------------------------------
+def lambda_handler(event, context):
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    logger.info("Cutoff timestamp: %s", cutoff)
+
+    # ── Source 1: Bedrock-classified (authoritative) ───────────────────────
+    bedrock_severities  = get_bedrock_severities(cutoff)
+
+    # ── Source 2: Estimated from news (fill in the gaps) ──────────────────
+    estimated_severities = get_estimated_severities(cutoff, skip_countries=set(bedrock_severities.keys()))
+
+    # ── Merge: Bedrock takes priority ──────────────────────────────────────
+    all_severities = {**estimated_severities, **bedrock_severities}
+
+    # ── Build response ─────────────────────────────────────────────────────
+    result:           list[dict] = []
     unknown_countries: list[str] = []
 
-    for country, severity in aggregated.items():
+    for country, severity in all_severities.items():
         coords = COUNTRY_COORDINATES.get(country)
         if coords is None:
             unknown_countries.append(country)
             continue
         lat, lon = coords
-        result.append(
-            {
-                "country": country,
-                "lat": lat,
-                "long": lon,
-                "severity": severity,
-            }
-        )
+        result.append({
+            "country":  country,
+            "lat":      lat,
+            "long":     lon,
+            "severity": severity,
+            "source":   "bedrock" if country in bedrock_severities else "estimated",
+        })
 
     if unknown_countries:
-        logger.warning(
-            "Countries missing from coordinate map (add them to COUNTRY_COORDINATES): %s",
-            unknown_countries,
-        )
+        logger.warning("Countries missing from coordinate map: %s", unknown_countries)
 
-    # Sort descending by severity so the client can render high-risk first
     result.sort(key=lambda x: x["severity"], reverse=True)
+
+    logger.info(
+        "Response: %d countries (%d bedrock, %d estimated)",
+        len(result),
+        len(bedrock_severities),
+        len(estimated_severities),
+    )
 
     return {
         "statusCode": 200,
         "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",   # adjust for production
+            "Content-Type":                "application/json",
+            "Access-Control-Allow-Origin": "*",
         },
         "body": json.dumps(result),
     }
