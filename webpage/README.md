@@ -1,41 +1,121 @@
-# War Monitor — Frontend
+# High Guard Web App (webpage)
 
-Global Conflict Intelligence Dashboard built with React + Vite. Pure canvas-based globe (no external globe library needed), country-level markers, and a slide-in panel showing article summaries.
+Frontend for the War Monitor project.
 
-## Setup
+This app renders an interactive 3D globe, highlights countries with active risk signals, shows per-country summaries/articles, and supports email subscription with Cloudflare Turnstile verification.
+
+## Stack
+
+- React 18 + Vite
+- Three.js (3D globe rendering)
+- d3-geo + topojson-client (country geometry and lookup)
+
+## Features
+
+- Rotating, zoomable 3D globe with severity markers
+- Hover highlight + click-to-open country panel
+- Country panel with:
+  - situation overview (summary)
+  - top events list
+  - recent report cards with source links
+- Header stats (critical, high, countries, reports today)
+- Severity filtering
+- Email subscription modal (Turnstile + Lambda)
+- Automatic country refresh every 15 minutes
+
+## Project layout
+
+- src/App.jsx: app shell, polling, panel state
+- src/components/Globe.jsx: Three.js scene, interaction, country highlight/markers
+- src/components/CountryPanel.jsx: country details panel
+- src/components/StatsBar.jsx: counters + subscription modal
+- src/components/FilterBar.jsx: re-exported from StatsBar
+- src/api/warApi.js: API/Lambda fetch + payload normalization
+- src/config/constants.js: env vars, color maps, app constants
+- src/data/countryCoords.js: country coordinate/feature helpers
+- lambda/: sample Lambda handlers used by backend endpoints
+
+## Getting started
+
+1. Install dependencies
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build → dist/
 ```
 
-## Connecting to AWS
+2. Create environment file
 
-Create a `.env` file in the project root:
-
-```env
-VITE_API_BASE=https://your-api-gateway-id.execute-api.ap-southeast-1.amazonaws.com/prod
-VITE_COUNTRY_NEWS_LAMBDA_URL=https://your-lambda-function-url.lambda-url.ap-southeast-1.on.aws/
-VITE_COUNTRY_SUMMARY_PATH=/country-summary
-VITE_COUNTRY_OVERVIEW_PATH=/country-overview
-VITE_COUNTRY_NEWS_PATH=/country-news
+```bash
+cp .env.example .env
 ```
 
-- `VITE_API_BASE` is used for `/countries` and `/events`
-- `VITE_COUNTRY_NEWS_LAMBDA_URL` is used with:
-  - `POST /country-summary` for country summarization
-  - `GET /country-overview` for marker overview
-  - `GET /country-news?country=Thailand` for country news articles
+3. Run locally
 
-Without these, the app runs with mock data automatically.
+```bash
+npm run dev
+```
 
-## API Contract
+Default dev URL: http://localhost:3000
 
-The frontend expects these endpoints from API Gateway:
+4. Build production bundle
 
-### GET /countries
-Returns array of country-level markers for the globe.
+```bash
+npm run build
+```
+
+5. Preview production bundle
+
+```bash
+npm run preview
+```
+
+## Environment variables
+
+Configured in [.env.example](.env.example).
+
+Required/optional values:
+
+- VITE_API_BASE  
+  Base API Gateway URL for fallback REST endpoints such as `/countries`, `/events`, `/summary/country`.
+
+- VITE_COUNTRY_NEWS_LAMBDA_URL  
+  Lambda Function URL base for country summary/overview/news endpoints.
+
+- VITE_COUNTRY_SUMMARY_PATH (default: `/country-summary`)
+- VITE_COUNTRY_OVERVIEW_PATH (default: `/country-overview`)
+- VITE_COUNTRY_NEWS_PATH (default: `/country-news`)
+
+- VITE_TURNSTILE_SITE_KEY  
+  Cloudflare Turnstile site key for subscription form.
+
+- VITE_SUBSCRIPTION_LAMBDA_URL (default: uses VITE_COUNTRY_NEWS_LAMBDA_URL)
+- VITE_SUBSCRIPTION_PATH (default: `/subscribe`)
+
+## Data flow and fallback behavior
+
+The frontend prefers Lambda endpoints first, then falls back to API Gateway endpoints when available.
+
+- Country markers:
+  1) GET `${VITE_COUNTRY_NEWS_LAMBDA_URL}${VITE_COUNTRY_OVERVIEW_PATH}`
+  2) fallback GET `${VITE_API_BASE}/countries`
+
+- Country articles:
+  1) GET `${VITE_COUNTRY_NEWS_LAMBDA_URL}${VITE_COUNTRY_NEWS_PATH}?country=<name>`
+  2) fallback GET `${VITE_API_BASE}/events?country=<name>`
+
+- Country summary:
+  1) POST `${VITE_COUNTRY_NEWS_LAMBDA_URL}${VITE_COUNTRY_SUMMARY_PATH}` with `{ country }`
+  2) fallback GET `${VITE_API_BASE}/summary/country?country=<name>`
+
+- Subscription:
+  POST `${VITE_SUBSCRIPTION_LAMBDA_URL}${VITE_SUBSCRIPTION_PATH}` with `{ email, turnstileToken }`
+
+The API layer normalizes mixed backend payload shapes (including Lambda proxy responses with `body`) into consistent UI models.
+
+## Expected response shape (normalized target)
+
+### Countries
+
 ```json
 [
   {
@@ -50,8 +130,8 @@ Returns array of country-level markers for the globe.
 ]
 ```
 
-### GET /events?country=Ukraine
-Returns articles for a specific country (O1 summaries).
+### Articles
+
 ```json
 [
   {
@@ -60,56 +140,42 @@ Returns articles for a specific country (O1 summaries).
     "category": "Armed Conflict",
     "severity": "critical",
     "priority": "high",
-    "timestamp": "2025-03-27T10:14:00Z",
-    "sourceURL": "https://reuters.com/...",
+    "timestamp": "2026-04-18T10:14:00Z",
+    "sourceURL": "https://example.com/report",
     "sourceName": "Reuters"
   }
 ]
 ```
 
-### POST countrySummarization Lambda URL
-Request body:
-```json
-{
-  "country": "Ukraine"
-}
-```
+### Summary
 
-Example response:
 ```json
 {
-  "statusCode": 200,
   "country": "Ukraine",
-  "action": "returned_existing",
-  "last_updated": "2026-04-05T08:31:33.824108",
-  "result": {
-    "country": "Ukraine",
-    "dominant_category": "armed_conflict",
-    "high_priority_count": 5,
-    "key_events": ["Event 1", "Event 2"],
-    "lastChecked": "2026-04-06T07:12:29.172276",
-    "model": "google.gemma-3-27b-it",
-    "overall_severity": 4,
-    "promptArn": "arn:aws:bedrock:ap-northeast-1:xxxxxxxxxxxx:prompt/XXXX:1",
-    "situation_summary": "...",
-    "total_events": 8,
-    "trend": "escalating",
-    "lastUpdated": "2026-04-05T08:31:33.824108"
-  }
+  "trend": "escalating",
+  "topCategory": "Armed Conflict",
+  "severity": "high",
+  "overallSituation": "...",
+  "topEvents": ["...", "..."],
+  "lastUpdated": "Apr 18, 2026, 04:24 PM",
+  "articleCount": 8
 }
 ```
 
-## Architecture notes
+## Deployment
 
-- No geocoding dependency — `COUNTRY_COORDS` in `Globe.jsx` is a static JS lookup (~200 entries, ~3KB)
-- Globe is pure Canvas 2D — no Three.js, no globe.gl, zero heavy dependencies
-- Polls `/countries` every 15 minutes to refresh markers
-- Country panel loads on click (lazy) — no upfront data fetch for articles
+Any static host for Vite output works (S3/CloudFront, Netlify, Vercel, etc.).
 
-## Deploy to S3 + CloudFront
+S3 + CloudFront example:
 
 ```bash
 npm run build
 aws s3 sync dist/ s3://your-bucket-name --delete
 aws cloudfront create-invalidation --distribution-id YOUR_ID --paths "/*"
 ```
+
+## Notes
+
+- If no endpoints are configured or reachable, country/event data resolves to empty lists.
+- Marker coordinates can come from backend lat/lon or be inferred via local country geometry helpers.
+- The document title and branding use “High Guard — Global Conflict Intelligence”.
