@@ -16,14 +16,14 @@ Create a `.env` file in the project root:
 
 ```env
 VITE_API_BASE=https://your-api-gateway-id.execute-api.ap-southeast-1.amazonaws.com/prod
-VITE_COUNTRY_SUMMARY_LAMBDA_URL=https://your-lambda-function-url.lambda-url.ap-southeast-1.on.aws/
+VITE_COUNTRY_NEWS_LAMBDA_URL=https://your-lambda-function-url.lambda-url.ap-southeast-1.on.aws/
 VITE_COUNTRY_SUMMARY_PATH=/country-summary
 VITE_COUNTRY_OVERVIEW_PATH=/country-overview
 VITE_COUNTRY_NEWS_PATH=/country-news
 ```
 
 - `VITE_API_BASE` is used for `/countries` and `/events`
-- `VITE_COUNTRY_SUMMARY_LAMBDA_URL` is used with:
+- `VITE_COUNTRY_NEWS_LAMBDA_URL` is used with:
   - `POST /country-summary` for country summarization
   - `GET /country-overview` for marker overview
   - `GET /country-news?country=Thailand` for country news articles

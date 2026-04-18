@@ -4,6 +4,8 @@ import {
   COUNTRY_SUMMARY_PATH,
   COUNTRY_OVERVIEW_PATH,
   COUNTRY_NEWS_PATH,
+  SUBSCRIPTION_LAMBDA_URL,
+  SUBSCRIPTION_PATH,
 } from "../config/constants";
 import { COUNTRY_COORDS } from "../data/countryCoords";
 
@@ -231,6 +233,32 @@ function parseLambdaPayload(rawText) {
   })();
 
   return { ok: true, data, error: "" };
+}
+
+function extractMessage(payload, fallback = "Request failed") {
+  if (!payload) return fallback;
+
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    return trimmed || fallback;
+  }
+
+  if (typeof payload?.message === "string" && payload.message.trim()) {
+    return payload.message.trim();
+  }
+
+  if (typeof payload?.body === "string") {
+    try {
+      const parsedBody = JSON.parse(payload.body);
+      if (typeof parsedBody?.message === "string" && parsedBody.message.trim()) {
+        return parsedBody.message.trim();
+      }
+    } catch {
+      return payload.body.trim() || fallback;
+    }
+  }
+
+  return fallback;
 }
 
 async function fetchJson(path) {
@@ -466,4 +494,52 @@ export async function getCountrySummary(countryName) {
   }
 
   return null;
+}
+
+export async function subscribeToAlerts({ email, turnstileToken }) {
+  if (!SUBSCRIPTION_LAMBDA_URL) {
+    return {
+      ok: false,
+      message: "Subscription endpoint is not configured",
+    };
+  }
+
+  try {
+    const res = await fetch(buildLambdaUrl(SUBSCRIPTION_LAMBDA_URL, SUBSCRIPTION_PATH), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: String(email || "").trim(),
+        turnstileToken: String(turnstileToken || "").trim(),
+      }),
+    });
+
+    const rawText = await res.text();
+    const parsed = parseLambdaPayload(rawText);
+
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        message: "Subscription service returned invalid JSON",
+      };
+    }
+
+    const data = parsed.data;
+    const bodyStatusCode = Number(data?.statusCode);
+    const effectiveStatus = Number.isFinite(bodyStatusCode) ? bodyStatusCode : res.status;
+    const message = extractMessage(
+      data,
+      effectiveStatus >= 500
+        ? "Failed to process subscription — please try again later"
+        : "Failed to subscribe"
+    );
+
+    if (effectiveStatus >= 400 || !res.ok) {
+      return { ok: false, message };
+    }
+
+    return { ok: true, message };
+  } catch {
+    return { ok: false, message: "Network error — please try again" };
+  }
 }

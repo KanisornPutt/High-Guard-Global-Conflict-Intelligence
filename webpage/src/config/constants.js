@@ -40,7 +40,7 @@ export const TEX_SETS = {
 };
 
 export const API_BASE = import.meta.env.VITE_API_BASE || "";
-export const COUNTRY_SUMMARY_LAMBDA_URL = import.meta.env.VITE_COUNTRY_SUMMARY_LAMBDA_URL || "";
+export const COUNTRY_SUMMARY_LAMBDA_URL = import.meta.env.VITE_COUNTRY_NEWS_LAMBDA_URL || "";
 export const COUNTRY_SUMMARY_PATH = import.meta.env.VITE_COUNTRY_SUMMARY_PATH || "/country-summary";
 export const COUNTRY_OVERVIEW_PATH =
   import.meta.env.VITE_COUNTRY_OVERVIEW_PATH ||
@@ -48,5 +48,10 @@ export const COUNTRY_OVERVIEW_PATH =
 export const COUNTRY_NEWS_PATH =
   import.meta.env.VITE_COUNTRY_NEWS_PATH ||
   "/country-news";
+
+export const SUBSCRIPTION_LAMBDA_URL =
+  import.meta.env.VITE_SUBSCRIPTION_LAMBDA_URL || COUNTRY_SUMMARY_LAMBDA_URL;
+export const SUBSCRIPTION_PATH =
+  import.meta.env.VITE_SUBSCRIPTION_PATH || "/subscribe";
 
 export const COUNTRY_REFRESH_MS = 15 * 60 * 1000;

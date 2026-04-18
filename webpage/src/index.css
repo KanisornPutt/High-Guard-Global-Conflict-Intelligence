@@ -82,6 +82,117 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
 .stat-label { font-size: 10px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 .stat-divider { width: 0.5px; height: 32px; background: var(--border); }
 
+.subscribe-btn {
+  margin-left: 16px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border-bright);
+  background: rgba(55, 138, 221, 0.14);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subscribe-btn:hover {
+  background: rgba(55, 138, 221, 0.24);
+  border-color: var(--accent);
+}
+
+.subscription-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(3, 6, 12, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.subscription-modal {
+  width: min(430px, 100%);
+  background: var(--bg-2);
+  border: 0.5px solid var(--border-bright);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.subscription-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.subscription-modal-header h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.subscription-close-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.subscription-close-btn:hover {
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+#subscribe-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#email-input {
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border-bright);
+  background: var(--bg-3);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  padding: 0 12px;
+}
+
+#email-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#submit-btn {
+  width: 100%;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+#submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ─── FILTER BAR ─── */
 .filter-bar {
   height: var(--filter-h);
@@ -385,7 +496,26 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
 /* ─── RESPONSIVE ─── */
 @media (max-width: 680px) {
   :root { --panel-w: 100vw; }
-  .stats-bar { display: none; }
+  .app-header {
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 12px;
+  }
+  .header-left { min-width: 0; }
+  .app-title { font-size: 16px; letter-spacing: 0.12em; }
+  .app-subtitle { font-size: 9px; }
+  .stats-bar {
+    display: flex;
+    margin-left: 4px;
+    flex-shrink: 0;
+  }
+  .stats-bar .stat-item,
+  .stats-bar .stat-divider { display: none; }
+  .subscribe-btn {
+    margin-left: 0;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
   .app-main { flex-direction: column; }
   .globe-wrap { flex: 1; height: 100%; min-height: 0; }
   .zoom-controls { display: none; }
@@ -397,6 +527,15 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
   }
   .country-panel.open { transform: translateY(0); }
   .globe-hint { display: none; }
+
+  .subscription-modal-overlay {
+    padding: 14px;
+  }
+  .subscription-modal {
+    width: 100%;
+    max-width: 420px;
+    padding: 14px;
+  }
 }
 
 /* ── UTC Clock + texture toggle ── */
