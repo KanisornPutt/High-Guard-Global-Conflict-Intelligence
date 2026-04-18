@@ -29,26 +29,26 @@ export const handler = async (event) => {
 	return { fetchedAt, totalArticles, totalErrors };
 }
 
+const today = new Date();
+const yesterday = new Date(today - 864e5).toISOString().slice(0, 10);
+
 const SOURCES = [
-	// {
-	// 	name: "NewsAPI - Top Headlines",
-	// 	country: "GLOBAL",
-	// 	fetch: () =>
-	// 		fetchJson(
-	// 			`https://newsapi.org/v2/everything?q=war&from=2026-03-02&sortBy=publishedAt&apiKey=${process.env.NEWSAPI_KEY}`
-	// 		),
-	// 	parse: (data) =>
-	// 		(data.articles || []).map((a) => ({
-	// 			url: a.url,
-	// 			title: a.title,
-	// 			description: a.description,
-	// 			publishedAt: a.publishedAt,
-	// 			source: a.source?.name || "NewsAPI",
-	// 			country: "GLOBAL",
-	// 			lat: null,
-	// 			long: null,
-	// 		})),
-	// },
+	{
+		name: "NewsAPI - Top Headlines",
+		country: "GLOBAL",
+		fetch: () => fetchJson(`https://newsapi.org/v2/everything?q=war&from=${yesterday}&sortBy=publishedAt&apiKey=${process.env.NEWSAPI_KEY}`),
+		parse: (data) =>
+			(data.articles || []).map((a) => ({
+				url: a.url,
+				title: a.title,
+				description: a.description,
+				publishedAt: a.publishedAt,
+				source: a.source?.name || "NewsAPI",
+				country: "GLOBAL",
+				lat: null,
+				long: null,
+			})),
+	},
 	{
 		name: "The Guardian",
 		country: "US",
@@ -65,25 +65,25 @@ const SOURCES = [
 				long: null,
 			})),
 	},
-	// {
-	// 	name: "New York Times",
-	// 	country: "US",
-	// 	fetch: () =>
-	// 		fetchJson(
-	// 			`https://api.nytimes.com/svc/topstories/v2/home.json?api-key=${process.env.NYT_KEY}`
-	// 		),
-	// 	parse: (data) =>
-	// 		(data.results || []).map((a) => ({
-	// 			url: a.url,
-	// 			title: a.title,
-	// 			description: a.abstract,
-	// 			publishedAt: a.published_date,
-	// 			source: "New York Times",
-	// 			country: "US",
-	// 			lat: 40.7128,
-	// 			long: -74.006,
-	// 		})),
-	// },
+	{
+		name: "New York Times",
+		country: "US",
+		fetch: () =>
+			fetchRss(
+				`https://rss.nytimes.com/services/xml/rss/nyt/World.xml`
+			),
+		parse: (items) =>
+			items.map((a) => ({
+				url: a.link,
+				title: a.title,
+				description: a.description,
+				publishedAt: a.pubDate,
+				source: "New York Times",
+				country: "US",
+				lat: 40.7128,
+				long: -74.006,
+			})),
+	},
 	{
 		name: "Bangkok Post RSS",
 		country: "TH",
@@ -101,6 +101,7 @@ const SOURCES = [
 			})),
 	},
 	// {
+	// can't find Reuters RSS
 	// 	name: "Reuters RSS",
 	// 	country: "GLOBAL",
 	// 	fetch: () => fetchRss("https://feeds.reuters.com/reuters/topNews"),
