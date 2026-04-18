@@ -2,7 +2,7 @@ import json
 import boto3
 import logging
 from datetime import datetime, timedelta
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Attr
 from collections import defaultdict
 from decimal import Decimal
 
@@ -205,13 +205,15 @@ def get_bedrock_severities(cutoff: str) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# Source 2: newsSummary — max article-level severity for remaining countries
-# Returns { country: max_severity } — only for countries NOT in bedrock_countries
+# Source 2: newsSummary — article-level max severity + per-country counts
+# Returns:
+#   max_severity_by_country: { country: max_severity }
+#   counts_by_country:       { country: article_count }
 # ---------------------------------------------------------------------------
-def get_estimated_severities(cutoff: str, skip_countries: set[str]) -> dict[str, int]:
+def get_news_metrics(cutoff: str) -> tuple[dict[str, int], dict[str, int]]:
     """
     Scan newsSummary for articles in last 24h.
-    Only aggregate countries that weren't covered by countrySummary.
+    Build max severity and article counts per country.
     """
     items  = []
     kwargs = {
@@ -231,20 +233,23 @@ def get_estimated_severities(cutoff: str, skip_countries: set[str]) -> dict[str,
     logger.info("newsSummary: %d articles in last 24h", len(items))
 
     country_severities: dict[str, list[int]] = defaultdict(list)
+    country_counts: dict[str, int] = defaultdict(int)
+
     for item in items:
         country  = item.get("country", "").strip()
         severity = _to_int(item.get("severity"))
 
-        if not country or severity is None:
+        if not country:
             continue
-        if country in skip_countries:
-            continue   # already have a better Bedrock value
 
-        country_severities[country].append(severity)
+        country_counts[country] += 1
 
-    result = {c: max(vals) for c, vals in country_severities.items()}
-    logger.info("Estimated countries (from news): %s", list(result.keys()))
-    return result
+        if severity is not None:
+            country_severities[country].append(severity)
+
+    max_severity_by_country = {c: max(vals) for c, vals in country_severities.items() if vals}
+    logger.info("Countries seen in news (last 24h): %s", list(country_counts.keys()))
+    return max_severity_by_country, dict(country_counts)
 
 
 # ---------------------------------------------------------------------------
@@ -258,10 +263,20 @@ def lambda_handler(event, context):
     bedrock_severities  = get_bedrock_severities(cutoff)
 
     # ── Source 2: Estimated from news (fill in the gaps) ──────────────────
-    estimated_severities = get_estimated_severities(cutoff, skip_countries=set(bedrock_severities.keys()))
+    news_max_severities, news_counts = get_news_metrics(cutoff)
+
+    estimated_severities = {
+        country: severity
+        for country, severity in news_max_severities.items()
+        if country not in bedrock_severities
+    }
 
     # ── Merge: Bedrock takes priority ──────────────────────────────────────
     all_severities = {**estimated_severities, **bedrock_severities}
+
+    # Keep countries with recent news even if severity is missing in source data.
+    for country in news_counts.keys():
+        all_severities.setdefault(country, 1)
 
     # ── Build response ─────────────────────────────────────────────────────
     result:           list[dict] = []
@@ -271,13 +286,16 @@ def lambda_handler(event, context):
         coords = COUNTRY_COORDINATES.get(country)
         if coords is None:
             unknown_countries.append(country)
-            continue
-        lat, lon = coords
+            lat, lon = None, None
+        else:
+            lat, lon = coords
         result.append({
             "country":  country,
             "lat":      lat,
             "long":     lon,
             "severity": severity,
+            "articleCount": news_counts.get(country, 0),
+            "total_events": news_counts.get(country, 0),
             "source":   "bedrock" if country in bedrock_severities else "estimated",
         })
 

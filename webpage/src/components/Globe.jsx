@@ -14,16 +14,53 @@ function ll2v(lat, lon, r = 1) {
   );
 }
 
-// Canvas (equirectangular) helpers — unchanged, these are correct
-function drawRing(ctx, ring, W, H) {
-  if (!ring?.length) return;
-  ctx.beginPath();
-  ring.forEach(([lon, lat], i) => {
+// Canvas (equirectangular) helpers
+function getUnwrappedRingPoints(ring, W, H) {
+  if (!ring?.length) return [];
+
+  const points = [];
+  let offsetX = 0;
+  let prevX = null;
+
+  ring.forEach(([lon, lat]) => {
     const x = ((lon + 180) / 360) * W;
     const y = ((90 - lat) / 180) * H;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+
+    let xUnwrapped = x + offsetX;
+    if (prevX != null) {
+      const dx = xUnwrapped - prevX;
+      if (dx > W / 2) {
+        offsetX -= W;
+        xUnwrapped = x + offsetX;
+      } else if (dx < -W / 2) {
+        offsetX += W;
+        xUnwrapped = x + offsetX;
+      }
+    }
+
+    points.push([xUnwrapped, y]);
+    prevX = xUnwrapped;
   });
-  ctx.closePath();
+
+  return points;
+}
+
+function drawRing(ctx, ring, W, H, render) {
+  const points = getUnwrappedRingPoints(ring, W, H);
+  if (!points.length) return;
+
+  // Draw unwrapped path and wrapped copies so polygons crossing the antimeridian
+  // (e.g. Russia) do not create long seam-spanning artifacts.
+  for (let k = -1; k <= 1; k += 1) {
+    const shift = k * W;
+    ctx.beginPath();
+    points.forEach(([x, y], i) => {
+      const sx = x + shift;
+      i === 0 ? ctx.moveTo(sx, y) : ctx.lineTo(sx, y);
+    });
+    ctx.closePath();
+    render();
+  }
 }
 function getRings(geo) {
   if (!geo) return [];
@@ -38,7 +75,9 @@ function buildBorderCanvas(features, W = 4096, H = 2048) {
   ctx.strokeStyle = "rgba(100,160,255,0.4)";
   ctx.lineWidth = 1.2;
   features.forEach(({ geometry }) =>
-    getRings(geometry).forEach(ring => { drawRing(ctx, ring, W, H); ctx.stroke(); })
+    getRings(geometry).forEach(ring => {
+      drawRing(ctx, ring, W, H, () => ctx.stroke());
+    })
   );
   return c;
 }
@@ -51,7 +90,10 @@ function buildHighlightCanvas(feature, W = 4096, H = 2048) {
   ctx.strokeStyle = "rgba(130,210,255,1)";
   ctx.lineWidth   = 4;
   getRings(feature.geometry).forEach(ring => {
-    drawRing(ctx, ring, W, H); ctx.fill(); ctx.stroke();
+    drawRing(ctx, ring, W, H, () => {
+      ctx.fill();
+      ctx.stroke();
+    });
   });
   return c;
 }
