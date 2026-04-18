@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Attr
 
 #  Clients 
 # Bedrock stays in Tokyo — only region with Gemma 3 27B
@@ -49,7 +50,16 @@ def get_system_prompt() -> str:
     return template_text
 
 
-#  Article Builder 
+#  Deduplication
+def url_exists(url: str) -> bool:
+    response = table.scan(
+        FilterExpression=Attr("articleURL").eq(url),
+        Limit=1
+    )
+    return len(response.get("Items", [])) > 0
+
+
+#  Article Builder
 def build_article_text(body: dict) -> str:
     """
     Build article text from SQS message fields.
@@ -214,6 +224,10 @@ def lambda_handler(event, context):
                 "message":    "Provide title or description in test event"
             }
 
+        if url_exists(test_body["url"]):
+            print("⚠️  Duplicate URL — skipping: " + test_body["url"])
+            return {"statusCode": 200, "message": "Duplicate URL — skipped"}
+
         article_text = build_article_text(test_body)
         classified   = call_bedrock(article_text)
         event_id     = save_to_dynamodb(classified, test_body)
@@ -235,6 +249,11 @@ def lambda_handler(event, context):
             article_url = body.get("url", "unknown")
 
             print(" Processing: " + article_url)
+
+            if url_exists(article_url):
+                print("⚠️  Duplicate URL — skipping: " + article_url)
+                success += 1
+                continue
 
             article_text = build_article_text(body)
 
