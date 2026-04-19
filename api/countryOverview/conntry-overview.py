@@ -1,7 +1,9 @@
 import json
 import boto3
 import logging
+import os
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 from boto3.dynamodb.conditions import Attr
 from collections import defaultdict
 from decimal import Decimal
@@ -9,9 +11,13 @@ from decimal import Decimal
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-dynamodb      = boto3.resource("dynamodb", region_name="ap-southeast-1")
-news_table    = dynamodb.Table("newsSummary")
-country_table = dynamodb.Table("countrySummary")
+DYNAMODB_REGION = os.environ.get("AWS_DYNAMODB_REGION", os.environ.get("AWS_REGION", "ap-southeast-1"))
+NEWS_TABLE_NAME = os.environ.get("NEWS_TABLE_NAME", "newsSummary")
+COUNTRY_TABLE_NAME = os.environ.get("COUNTRY_TABLE_NAME", "countrySummary")
+
+dynamodb      = boto3.resource("dynamodb", region_name=DYNAMODB_REGION)
+news_table    = dynamodb.Table(NEWS_TABLE_NAME)
+country_table = dynamodb.Table(COUNTRY_TABLE_NAME)
 
 # ---------------------------------------------------------------------------
 # Hardcoded country → (lat, lon) lookup
@@ -158,30 +164,43 @@ def _to_int(value) -> int | None:
 
 
 # ---------------------------------------------------------------------------
+# Parallel segmented scan helper
+# Splits a DynamoDB scan across N segments and runs them concurrently.
+# ---------------------------------------------------------------------------
+SCAN_SEGMENTS = 4   # tune up if table grows larger
+
+def parallel_scan(table, scan_kwargs: dict) -> list:
+    """Run a DynamoDB scan in parallel segments and return all items."""
+
+    def scan_one(segment: int) -> list:
+        items  = []
+        kwargs = {**scan_kwargs, "TotalSegments": SCAN_SEGMENTS, "Segment": segment}
+        while True:
+            response = table.scan(**kwargs)
+            items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+        return items
+
+    with ThreadPoolExecutor(max_workers=SCAN_SEGMENTS) as executor:
+        segments = list(executor.map(scan_one, range(SCAN_SEGMENTS)))
+
+    return [item for segment in segments for item in segment]
+
+
+# ---------------------------------------------------------------------------
 # Source 1: countrySummary — Bedrock-classified severity, updated in last 24h
-# Returns { country: overall_severity }
 # ---------------------------------------------------------------------------
 def get_bedrock_severities(cutoff: str) -> dict[str, int]:
-    """
-    Scan countrySummary for rows where lastUpdated >= cutoff.
-    Multiple rows may exist per country (sort key = lastUpdated),
-    so we keep the most recent one per country.
-    """
-    items   = []
-    kwargs  = {
+    scan_kwargs = {
         "FilterExpression": Attr("lastUpdated").gte(cutoff),
         "ProjectionExpression": "#c, lastUpdated, overall_severity",
         "ExpressionAttributeNames": {"#c": "country"},
     }
 
-    while True:
-        response = country_table.scan(**kwargs)
-        items.extend(response.get("Items", []))
-        last_key = response.get("LastEvaluatedKey")
-        if not last_key:
-            break
-        kwargs["ExclusiveStartKey"] = last_key
-
+    items = parallel_scan(country_table, scan_kwargs)
     logger.info("countrySummary: %d rows in last 24h", len(items))
 
     # Keep only the most recent entry per country
@@ -206,34 +225,19 @@ def get_bedrock_severities(cutoff: str) -> dict[str, int]:
 
 # ---------------------------------------------------------------------------
 # Source 2: newsSummary — article-level max severity + per-country counts
-# Returns:
-#   max_severity_by_country: { country: max_severity }
-#   counts_by_country:       { country: article_count }
 # ---------------------------------------------------------------------------
 def get_news_metrics(cutoff: str) -> tuple[dict[str, int], dict[str, int]]:
-    """
-    Scan newsSummary for articles in last 24h.
-    Build max severity and article counts per country.
-    """
-    items  = []
-    kwargs = {
+    scan_kwargs = {
         "FilterExpression": Attr("timeStamp").gte(cutoff),
         "ProjectionExpression": "#c, severity",
         "ExpressionAttributeNames": {"#c": "country"},
     }
 
-    while True:
-        response = news_table.scan(**kwargs)
-        items.extend(response.get("Items", []))
-        last_key = response.get("LastEvaluatedKey")
-        if not last_key:
-            break
-        kwargs["ExclusiveStartKey"] = last_key
-
+    items = parallel_scan(news_table, scan_kwargs)
     logger.info("newsSummary: %d articles in last 24h", len(items))
 
     country_severities: dict[str, list[int]] = defaultdict(list)
-    country_counts: dict[str, int] = defaultdict(int)
+    country_counts:     dict[str, int]        = defaultdict(int)
 
     for item in items:
         country  = item.get("country", "").strip()
@@ -247,7 +251,9 @@ def get_news_metrics(cutoff: str) -> tuple[dict[str, int], dict[str, int]]:
         if severity is not None:
             country_severities[country].append(severity)
 
-    max_severity_by_country = {c: max(vals) for c, vals in country_severities.items() if vals}
+    max_severity_by_country = {
+        c: max(vals) for c, vals in country_severities.items() if vals
+    }
     logger.info("Countries seen in news (last 24h): %s", list(country_counts.keys()))
     return max_severity_by_country, dict(country_counts)
 
@@ -259,28 +265,30 @@ def lambda_handler(event, context):
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
     logger.info("Cutoff timestamp: %s", cutoff)
 
-    # ── Source 1: Bedrock-classified (authoritative) ───────────────────────
-    bedrock_severities  = get_bedrock_severities(cutoff)
+    # ── Fix 1: Run both table scans concurrently ───────────────────────────
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_bedrock = executor.submit(get_bedrock_severities, cutoff)
+        future_news    = executor.submit(get_news_metrics, cutoff)
 
-    # ── Source 2: Estimated from news (fill in the gaps) ──────────────────
-    news_max_severities, news_counts = get_news_metrics(cutoff)
+        bedrock_severities               = future_bedrock.result()
+        news_max_severities, news_counts = future_news.result()
 
+    # ── Merge: Bedrock takes priority, news fills the gaps ─────────────────
     estimated_severities = {
         country: severity
         for country, severity in news_max_severities.items()
         if country not in bedrock_severities
     }
 
-    # ── Merge: Bedrock takes priority ──────────────────────────────────────
     all_severities = {**estimated_severities, **bedrock_severities}
 
-    # Keep countries with recent news even if severity is missing in source data.
+    # Ensure countries with news but no severity data still appear (default 1)
     for country in news_counts.keys():
         all_severities.setdefault(country, 1)
 
     # ── Build response ─────────────────────────────────────────────────────
-    result:           list[dict] = []
-    unknown_countries: list[str] = []
+    result:            list[dict] = []
+    unknown_countries: list[str]  = []
 
     for country, severity in all_severities.items():
         coords = COUNTRY_COORDINATES.get(country)
@@ -289,14 +297,15 @@ def lambda_handler(event, context):
             lat, lon = None, None
         else:
             lat, lon = coords
+
         result.append({
-            "country":  country,
-            "lat":      lat,
-            "long":     lon,
-            "severity": severity,
+            "country":      country,
+            "lat":          lat,
+            "long":         lon,
+            "severity":     severity,
             "articleCount": news_counts.get(country, 0),
             "total_events": news_counts.get(country, 0),
-            "source":   "bedrock" if country in bedrock_severities else "estimated",
+            "source":       "bedrock" if country in bedrock_severities else "estimated",
         })
 
     if unknown_countries:

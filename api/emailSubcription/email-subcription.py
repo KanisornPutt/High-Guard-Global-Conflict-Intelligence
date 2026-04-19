@@ -7,7 +7,8 @@ import urllib.parse
 from botocore.exceptions import ClientError
 
 # ─── Clients ──────────────────────────────────────────────────────────────────
-sns = boto3.client("sns", region_name="ap-southeast-1")
+SNS_REGION = os.environ.get("AWS_SNS_REGION", os.environ.get("AWS_REGION", "ap-southeast-1"))
+sns = boto3.client("sns", region_name=SNS_REGION)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 SNS_TOPIC_ARN    = os.environ.get("SNS_TOPIC_ARN")

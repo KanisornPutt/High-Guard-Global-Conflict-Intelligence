@@ -1,12 +1,16 @@
 import boto3
 import json
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from boto3.dynamodb.conditions import Attr
 
 # ─── Clients ──────────────────────────────────────────────────────────────────
-dynamodb   = boto3.resource("dynamodb", region_name="ap-southeast-1")
-news_table = dynamodb.Table("newsSummary")
+DYNAMODB_REGION = os.environ.get("AWS_DYNAMODB_REGION", os.environ.get("AWS_REGION", "ap-southeast-1"))
+NEWS_TABLE_NAME = os.environ.get("NEWS_TABLE_NAME", "newsSummary")
+
+dynamodb   = boto3.resource("dynamodb", region_name=DYNAMODB_REGION)
+news_table = dynamodb.Table(NEWS_TABLE_NAME)
 
 
 # ─── Decimal Serializer ───────────────────────────────────────────────────────
@@ -51,11 +55,14 @@ def get_country_news(country: str, hours: int = 24) -> list:
     scan_kwargs = {
         "FilterExpression": Attr("country").eq(country) & Attr("timeStamp").gte(cutoff),
         "ProjectionExpression": (
-            "eventId, timeStamp, newSummarization, country, priority, "
+            "eventId, #ts, newSummarization, country, priority, "
             "category, severity, articleURL, title, #src, publishedAt, fetchedAt"
         ),
-        # 'source' is a reserved word in DynamoDB
-        "ExpressionAttributeNames": {"#src": "source"},
+        # Reserved words in DynamoDB must be aliased.
+        "ExpressionAttributeNames": {
+            "#src": "source",
+            "#ts": "timeStamp",
+        },
     }
 
     items = []
