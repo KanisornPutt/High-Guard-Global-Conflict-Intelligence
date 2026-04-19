@@ -154,6 +154,16 @@ function normalizeArticleRecord(article) {
   };
 }
 
+function sortArticlesByPublishedAtDesc(articles) {
+  return [...articles].sort((a, b) => {
+    const aTime = new Date(a?.timestamp || 0).getTime();
+    const bTime = new Date(b?.timestamp || 0).getTime();
+    const safeATime = Number.isFinite(aTime) ? aTime : 0;
+    const safeBTime = Number.isFinite(bTime) ? bTime : 0;
+    return safeBTime - safeATime;
+  });
+}
+
 function normalizeCountrySummary(summary, countryName) {
   if (!summary || typeof summary !== "object") return null;
 
@@ -445,7 +455,7 @@ export async function getCountryEvents(countryName) {
       .map(normalizeArticleRecord)
       .filter(Boolean);
 
-    if (normalized.length > 0) return normalized;
+    if (normalized.length > 0) return sortArticlesByPublishedAtDesc(normalized);
   }
 
   const encodedCountry = encodeURIComponent(countryName);
@@ -457,7 +467,7 @@ export async function getCountryEvents(countryName) {
       .map(normalizeArticleRecord)
       .filter(Boolean);
 
-    if (normalized.length > 0) return normalized;
+    if (normalized.length > 0) return sortArticlesByPublishedAtDesc(normalized);
   }
   return [];
 }

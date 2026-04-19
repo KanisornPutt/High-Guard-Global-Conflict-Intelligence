@@ -315,6 +315,70 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
   letter-spacing: 0.06em;
 }
 
+.overlap-picker {
+  position: absolute;
+  z-index: 9;
+  width: 220px;
+  max-width: calc(100% - 24px);
+  background: rgba(9, 16, 32, 0.92);
+  border: 0.5px solid var(--border-bright);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.35);
+  padding: 10px;
+}
+
+.overlap-picker-title {
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.overlap-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 170px;
+  overflow-y: auto;
+}
+
+.overlap-picker-item {
+  width: 100%;
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  background: rgba(55, 138, 221, 0.07);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.overlap-picker-item:hover {
+  border-color: var(--accent);
+  background: rgba(55, 138, 221, 0.16);
+}
+
+.overlap-picker-close {
+  width: 100%;
+  margin-top: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.overlap-picker-close:hover {
+  border-color: var(--border-bright);
+  color: var(--text-secondary);
+}
+
 /* ── Zoom controls ── */
 .zoom-controls {
   position: absolute;

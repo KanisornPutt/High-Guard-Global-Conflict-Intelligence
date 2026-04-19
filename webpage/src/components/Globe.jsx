@@ -183,6 +183,7 @@ function LocalClock() {
 export default function Globe({ countries, selectedCountry, onCountryClick }) {
   const mountRef  = useRef(null);
   const api       = useRef({ rebuildMarkers: null, applyHighlight: null, selectedName: null, zoom: null });
+  const [overlapPick, setOverlapPick] = useState(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -307,7 +308,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         const markerTex = new THREE.CanvasTexture(makeMarkerCanvas(c.severity));
         const markerMat = new THREE.SpriteMaterial({ map: markerTex, transparent: true, depthWrite: false, sizeAttenuation: true });
         const markerSp  = new THREE.Sprite(markerMat);
-        const markerScale = c.severity === "critical" ? 0.086 : c.severity === "high" ? 0.074 : 0.064;
+        const markerScale = c.severity === "critical" ? 0.076 : c.severity === "high" ? 0.066 : 0.057;
         const markerPos = ll2v(lat, lon, 1.015);
         markerSp.scale.setScalar(markerScale);
         markerSp.position.copy(markerPos);
@@ -341,8 +342,8 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         });
         const labelSp = new THREE.Sprite(labelMat);
         const labelPos = ll2v(lat, lon, 1.09);
-        const labelW = 0.2;
-        const labelH = 0.06;
+        const labelW = 0.17;
+        const labelH = 0.052;
         labelSp.scale.set(labelW, labelH, 1);
         labelSp.position.copy(labelPos);
         markers.add(labelSp);
@@ -352,6 +353,8 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     rebuildMarkers(countries);
 
     let isDragging = false, hasDragged = false;
+    let lastUserMoveAt = null;
+    let stillSinceAt = null;
     let prevX = 0, prevY = 0, velY = 0.0008;
     let targetZoom = 2.6, currentZoom = 2.6;
     const rc = new THREE.Raycaster();
@@ -361,31 +364,67 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       const r = mount.getBoundingClientRect();
       return [((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1];
     }
-    function hitSprite(nx, ny) {
+    function hitCountries(nx, ny) {
       mv.set(nx, ny); rc.setFromCamera(mv, camera);
       const hits = rc.intersectObjects(hitSprites);
-      return hits.length ? hits[0].object.userData.country : null;
+      if (!hits.length) return [];
+
+      const uniq = new Map();
+      hits.forEach(({ object, distance }) => {
+        const country = object?.userData?.country;
+        if (!country?.name) return;
+        const prev = uniq.get(country.name);
+        if (!prev || distance < prev.distance) uniq.set(country.name, { country, distance });
+      });
+
+      return Array.from(uniq.values())
+        .sort((a, b) => a.distance - b.distance)
+        .map(v => v.country);
+    }
+    function openOverlapPick(clientX, clientY, candidates) {
+      if (!candidates?.length) {
+        setOverlapPick(null);
+        return;
+      }
+      const r = mount.getBoundingClientRect();
+      const menuW = 220;
+      const x = Math.max(12, Math.min((clientX - r.left) + 10, r.width - menuW - 12));
+      const y = Math.max(12, Math.min((clientY - r.top) + 10, r.height - 180));
+      setOverlapPick({ x, y, candidates });
     }
     function adjustZoom(d) { targetZoom = Math.max(1.25, Math.min(5.0, targetZoom + d)); }
     api.current.zoom = adjustZoom;
 
-    function onDown(e)  { isDragging = true; hasDragged = false; velY = 0; prevX = e.clientX; prevY = e.clientY; }
+    function onDown(e)  { isDragging = true; hasDragged = false; velY = 0; prevX = e.clientX; prevY = e.clientY; setOverlapPick(null); lastUserMoveAt = performance.now(); stillSinceAt = null; }
     function onMove(e) {
       if (isDragging) {
         const dx = e.clientX - prevX, dy = e.clientY - prevY;
         if (Math.abs(dx) + Math.abs(dy) > 2) hasDragged = true;
         rotGroup.forEach(o => { o.rotation.y += dx * 0.005; o.rotation.x = Math.max(-1.3, Math.min(1.3, o.rotation.x + dy * 0.005)); });
+        lastUserMoveAt = performance.now();
+        stillSinceAt = null;
         velY = dx * 0.003; prevX = e.clientX; prevY = e.clientY;
       } else {
         const [nx, ny] = normMouse(e.clientX, e.clientY);
-        const hit = hitSprite(nx, ny);
+        const hit = hitCountries(nx, ny)[0] ?? null;
         mount.style.cursor = hit ? "pointer" : "grab";
         applyHighlight(hit?.name ?? null);
       }
     }
     function onUp(e) {
       isDragging = false;
-      if (!hasDragged) { const [nx, ny] = normMouse(e.clientX, e.clientY); const hit = hitSprite(nx, ny); if (hit) onCountryClick(hit); }
+      if (!hasDragged) {
+        const [nx, ny] = normMouse(e.clientX, e.clientY);
+        const hits = hitCountries(nx, ny);
+        if (hits.length === 1) {
+          setOverlapPick(null);
+          onCountryClick(hits[0]);
+        } else if (hits.length > 1) {
+          openOverlapPick(e.clientX, e.clientY, hits);
+        } else {
+          setOverlapPick(null);
+        }
+      }
     }
     function onLeave() { isDragging = false; applyHighlight(null); mount.style.cursor = "grab"; }
     function onWheel(e) { e.preventDefault(); adjustZoom(e.deltaY * 0.004); }
@@ -393,7 +432,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     let lastPinch = null, lastTX = 0, lastTY = 0, tDragged = false;
     function onTS(e) {
       if (e.touches.length === 2) lastPinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      else { isDragging = true; tDragged = false; velY = 0; lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY; }
+      else { isDragging = true; tDragged = false; velY = 0; lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY; lastUserMoveAt = performance.now(); stillSinceAt = null; }
     }
     function onTM(e) {
       e.preventDefault();
@@ -404,6 +443,8 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         const dx = e.touches[0].clientX - lastTX, dy = e.touches[0].clientY - lastTY;
         if (Math.abs(dx) + Math.abs(dy) > 2) tDragged = true;
         rotGroup.forEach(o => { o.rotation.y += dx * 0.005; o.rotation.x = Math.max(-1.3, Math.min(1.3, o.rotation.x + dy * 0.005)); });
+        lastUserMoveAt = performance.now();
+        stillSinceAt = null;
         velY = dx * 0.003; lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY;
       }
     }
@@ -411,7 +452,15 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       isDragging = false; lastPinch = null;
       if (!tDragged && e.changedTouches.length === 1) {
         const t = e.changedTouches[0]; const [nx, ny] = normMouse(t.clientX, t.clientY);
-        const hit = hitSprite(nx, ny); if (hit) onCountryClick(hit);
+        const hits = hitCountries(nx, ny);
+        if (hits.length === 1) {
+          setOverlapPick(null);
+          onCountryClick(hits[0]);
+        } else if (hits.length > 1) {
+          openOverlapPick(t.clientX, t.clientY, hits);
+        } else {
+          setOverlapPick(null);
+        }
       }
     }
 
@@ -435,7 +484,30 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     function animate() {
       raf = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
-      if (!isDragging) { velY *= 0.97; if (Math.abs(velY) < 0.0006) velY = 0.0008; rotGroup.forEach(o => { o.rotation.y += velY; }); }
+      if (!isDragging) {
+        if (lastUserMoveAt == null) {
+          velY *= 0.97;
+          if (Math.abs(velY) < 0.0006) {
+            velY = 0.0008;
+          }
+          rotGroup.forEach(o => { o.rotation.y += velY; });
+        } else if (Math.abs(velY) >= 0.0006) {
+          velY *= 0.97;
+          stillSinceAt = null;
+          rotGroup.forEach(o => { o.rotation.y += velY; });
+        } else {
+          velY = 0;
+          if (stillSinceAt == null) stillSinceAt = performance.now();
+          // Stay still for 5 seconds after momentum has actually stopped,
+          // then resume idle auto-rotation.
+          if ((performance.now() - stillSinceAt) >= 5000) {
+            lastUserMoveAt = null;
+            stillSinceAt = null;
+            velY = 0.0008;
+            rotGroup.forEach(o => { o.rotation.y += velY; });
+          }
+        }
+      }
       currentZoom += (targetZoom - currentZoom) * 0.09;
       camera.position.z = currentZoom;
       markerSprites.forEach((s, i) => {
@@ -467,6 +539,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
   useEffect(() => { api.current.rebuildMarkers?.(countries); }, [countries]);
   useEffect(() => {
     api.current.selectedName = selectedCountry?.name ?? null;
+    setOverlapPick(null);
     if (selectedCountry) api.current.applyHighlight?.(selectedCountry.name);
     else api.current.applyHighlight?.(null);
   }, [selectedCountry]);
@@ -496,6 +569,30 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       </div>
 
       <div className="globe-hint">Drag · Scroll to zoom · Click marker</div>
+
+      {overlapPick && (
+        <div className="overlap-picker" style={{ left: overlapPick.x, top: overlapPick.y }}>
+          <div className="overlap-picker-title">Choose a country</div>
+          <div className="overlap-picker-list">
+            {overlapPick.candidates.map((country) => (
+              <button
+                key={country.name}
+                type="button"
+                className="overlap-picker-item"
+                onClick={() => {
+                  setOverlapPick(null);
+                  onCountryClick(country);
+                }}
+              >
+                {country.name}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="overlap-picker-close" onClick={() => setOverlapPick(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
