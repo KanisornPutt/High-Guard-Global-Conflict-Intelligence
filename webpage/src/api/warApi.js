@@ -140,13 +140,15 @@ function normalizeCountryRecord(country) {
 function normalizeArticleRecord(article) {
   if (!article || typeof article !== "object") return null;
 
+  const publishTimestamp = article.publishedAt || article.timestamp || article.timeStamp || article.fetchedAt;
+
   return {
     articleId: article.articleId || article.eventId || article.id || `${article.country || "event"}-${article.timeStamp || article.publishedAt || Date.now()}`,
     articleSummary: article.articleSummary || article.newSummarization || article.summary || article.description || "",
     category: normalizeCategory(article.category),
     severity: normalizeSeverity(article.severity),
     priority: String(article.priority || "").toLowerCase() || "medium",
-    timestamp: article.timestamp || article.timeStamp || article.publishedAt || article.fetchedAt || new Date().toISOString(),
+    timestamp: publishTimestamp || new Date().toISOString(),
     sourceURL: article.sourceURL || article.articleURL || article.url || "#",
     sourceName: article.sourceName || article.source || "Unknown source",
   };
