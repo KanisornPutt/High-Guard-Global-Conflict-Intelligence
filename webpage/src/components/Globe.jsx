@@ -380,6 +380,10 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     let targetZoom = 2.6, currentZoom = 2.6;
     const rc = new THREE.Raycaster();
     const mv = new THREE.Vector2();
+    const centerW = new THREE.Vector3();
+    const pointW = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    const normal = new THREE.Vector3();
 
     function normMouse(cx, cy) {
       const r = mount.getBoundingClientRect();
@@ -390,10 +394,18 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       const hits = rc.intersectObjects(hitSprites);
       if (!hits.length) return [];
 
+      globe.getWorldPosition(centerW);
+      camDir.subVectors(camera.position, centerW).normalize();
+
       const uniq = new Map();
       hits.forEach(({ object, distance }) => {
         const country = object?.userData?.country;
         if (!country?.name) return;
+
+        object.getWorldPosition(pointW);
+        normal.subVectors(pointW, centerW).normalize();
+        if (normal.dot(camDir) <= 0.02) return;
+
         const prev = uniq.get(country.name);
         if (!prev || distance < prev.distance) uniq.set(country.name, { country, distance });
       });
