@@ -182,7 +182,7 @@ function LocalClock() {
 
 export default function Globe({ countries, selectedCountry, onCountryClick }) {
   const mountRef  = useRef(null);
-  const api       = useRef({ rebuildMarkers: null, applyHighlight: null, selectedName: null, zoom: null });
+  const api       = useRef({ rebuildMarkers: null, applyHighlight: null, selectedName: null, selectedCountryData: null, allowIdleRotationWhenSelected: true, centerOnCountry: null, zoom: null });
   const [overlapPick, setOverlapPick] = useState(null);
   const [unmappedCountries, setUnmappedCountries] = useState([]);
   const [unmappedSelection, setUnmappedSelection] = useState("");
@@ -281,6 +281,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
 
       // Rebuild once we have features so coord lookup can cover all countries.
       api.current.rebuildMarkers?.(countries);
+      api.current.centerOnCountry?.(api.current.selectedCountryData);
     }
     loadBorders();
 
@@ -375,6 +376,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     let lastUserMoveAt = null;
     let stillSinceAt = null;
     let prevX = 0, prevY = 0, velY = 0.0008;
+    let targetRotY = null, targetRotX = null;
     let targetZoom = 2.6, currentZoom = 2.6;
     const rc = new THREE.Raycaster();
     const mv = new THREE.Vector2();
@@ -414,11 +416,50 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     function adjustZoom(d) { targetZoom = Math.max(1.25, Math.min(5.0, targetZoom + d)); }
     api.current.zoom = adjustZoom;
 
-    function onDown(e)  { isDragging = true; hasDragged = false; velY = 0; prevX = e.clientX; prevY = e.clientY; setOverlapPick(null); lastUserMoveAt = performance.now(); stillSinceAt = null; }
+    function centerOnCountry(country) {
+      if (!country) return;
+
+      const hasLatLon = Number.isFinite(country.lat) && Number.isFinite(country.lon);
+      const hasDefinedCoords = country.hasDefinedCoords !== false;
+      const resolved = (hasLatLon && hasDefinedCoords)
+        ? [country.lat, country.lon]
+        : getCountryLatLon(country.name, allFeatures);
+
+      if (!resolved) return;
+
+      const [lat, lon] = resolved;
+      const v = ll2v(lat, lon, 1);
+      const y = Math.atan2(-v.x, v.z);
+      const z1 = Math.sqrt(v.x * v.x + v.z * v.z);
+      const x = Math.atan2(v.y, z1);
+
+      targetRotY = y;
+      targetRotX = x;
+      velY = 0;
+      const now = performance.now();
+      lastUserMoveAt = now;
+      stillSinceAt = now;
+    }
+    api.current.centerOnCountry = centerOnCountry;
+
+    function onDown(e)  {
+      if (targetRotY != null || targetRotX != null) return;
+      isDragging = true;
+      hasDragged = false;
+      velY = 0;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      setOverlapPick(null);
+      lastUserMoveAt = performance.now();
+      stillSinceAt = null;
+    }
     function onMove(e) {
       if (isDragging) {
         const dx = e.clientX - prevX, dy = e.clientY - prevY;
-        if (Math.abs(dx) + Math.abs(dy) > 2) hasDragged = true;
+        if (Math.abs(dx) + Math.abs(dy) > 2) {
+          hasDragged = true;
+          if (api.current.selectedCountryData) api.current.allowIdleRotationWhenSelected = true;
+        }
         rotGroup.forEach(o => { o.rotation.y += dx * 0.005; o.rotation.x = Math.max(-1.3, Math.min(1.3, o.rotation.x + dy * 0.005)); });
         lastUserMoveAt = performance.now();
         stillSinceAt = null;
@@ -427,7 +468,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         const [nx, ny] = normMouse(e.clientX, e.clientY);
         const hit = hitCountries(nx, ny)[0] ?? null;
         mount.style.cursor = hit ? "pointer" : "grab";
-        applyHighlight(hit?.name ?? null);
+        applyHighlight(hit?.name ?? api.current.selectedName ?? null);
       }
     }
     function onUp(e) {
@@ -437,6 +478,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         const hits = hitCountries(nx, ny);
         if (hits.length === 1) {
           setOverlapPick(null);
+          centerOnCountry(hits[0]);
           onCountryClick(hits[0]);
         } else if (hits.length > 1) {
           openOverlapPick(e.clientX, e.clientY, hits);
@@ -445,11 +487,16 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         }
       }
     }
-    function onLeave() { isDragging = false; applyHighlight(null); mount.style.cursor = "grab"; }
+    function onLeave() {
+      isDragging = false;
+      applyHighlight(api.current.selectedName ?? null);
+      mount.style.cursor = "grab";
+    }
     function onWheel(e) { e.preventDefault(); adjustZoom(e.deltaY * 0.004); }
 
     let lastPinch = null, lastTX = 0, lastTY = 0, tDragged = false;
     function onTS(e) {
+      if (targetRotY != null || targetRotX != null) return;
       if (e.touches.length === 2) lastPinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       else { isDragging = true; tDragged = false; velY = 0; lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY; lastUserMoveAt = performance.now(); stillSinceAt = null; }
     }
@@ -460,7 +507,10 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         adjustZoom(-(d - lastPinch) * 0.012); lastPinch = d;
       } else if (e.touches.length === 1 && isDragging) {
         const dx = e.touches[0].clientX - lastTX, dy = e.touches[0].clientY - lastTY;
-        if (Math.abs(dx) + Math.abs(dy) > 2) tDragged = true;
+        if (Math.abs(dx) + Math.abs(dy) > 2) {
+          tDragged = true;
+          if (api.current.selectedCountryData) api.current.allowIdleRotationWhenSelected = true;
+        }
         rotGroup.forEach(o => { o.rotation.y += dx * 0.005; o.rotation.x = Math.max(-1.3, Math.min(1.3, o.rotation.x + dy * 0.005)); });
         lastUserMoveAt = performance.now();
         stillSinceAt = null;
@@ -474,6 +524,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         const hits = hitCountries(nx, ny);
         if (hits.length === 1) {
           setOverlapPick(null);
+          centerOnCountry(hits[0]);
           onCountryClick(hits[0]);
         } else if (hits.length > 1) {
           openOverlapPick(t.clientX, t.clientY, hits);
@@ -504,7 +555,24 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       raf = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
       if (!isDragging) {
-        if (lastUserMoveAt == null) {
+        if (targetRotY != null && targetRotX != null) {
+          let done = true;
+          rotGroup.forEach((o) => {
+            const dy = targetRotY - o.rotation.y;
+            const dx = targetRotX - o.rotation.x;
+            o.rotation.y += dy * 0.12;
+            o.rotation.x += dx * 0.12;
+            if (Math.abs(dy) > 0.001 || Math.abs(dx) > 0.001) done = false;
+          });
+          if (done) {
+            rotGroup.forEach((o) => {
+              o.rotation.y = targetRotY;
+              o.rotation.x = targetRotX;
+            });
+            targetRotY = null;
+            targetRotX = null;
+          }
+        } else if (lastUserMoveAt == null) {
           velY *= 0.97;
           if (Math.abs(velY) < 0.0006) {
             velY = 0.0008;
@@ -517,9 +585,10 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         } else {
           velY = 0;
           if (stillSinceAt == null) stillSinceAt = performance.now();
+          const canResumeIdle = !api.current.selectedCountryData || api.current.allowIdleRotationWhenSelected;
           // Stay still for 5 seconds after momentum has actually stopped,
           // then resume idle auto-rotation.
-          if ((performance.now() - stillSinceAt) >= 5000) {
+          if (canResumeIdle && (performance.now() - stillSinceAt) >= 5000) {
             lastUserMoveAt = null;
             stillSinceAt = null;
             velY = 0.0008;
@@ -558,9 +627,13 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
   useEffect(() => { api.current.rebuildMarkers?.(countries); }, [countries]);
   useEffect(() => {
     api.current.selectedName = selectedCountry?.name ?? null;
+    api.current.selectedCountryData = selectedCountry ?? null;
+    api.current.allowIdleRotationWhenSelected = !selectedCountry;
     setOverlapPick(null);
-    if (selectedCountry) api.current.applyHighlight?.(selectedCountry.name);
-    else api.current.applyHighlight?.(null);
+    if (selectedCountry) {
+      api.current.applyHighlight?.(selectedCountry.name);
+      api.current.centerOnCountry?.(selectedCountry);
+    } else api.current.applyHighlight?.(null);
   }, [selectedCountry]);
   useEffect(() => {
     if (!unmappedSelection) return;
@@ -592,7 +665,10 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
                 if (!nextName) return;
 
                 const picked = unmappedCountries.find((c) => c.name === nextName);
-                if (picked) onCountryClick(picked);
+                if (picked) {
+                  api.current.centerOnCountry?.(picked);
+                  onCountryClick(picked);
+                }
                 setUnmappedSelection("");
               }}
             >
@@ -635,6 +711,7 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
                 className="overlap-picker-item"
                 onClick={() => {
                   setOverlapPick(null);
+                  api.current.centerOnCountry?.(country);
                   onCountryClick(country);
                 }}
               >
