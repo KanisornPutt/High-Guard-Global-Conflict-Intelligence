@@ -570,7 +570,8 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         if (targetRotY != null && targetRotX != null) {
           let done = true;
           rotGroup.forEach((o) => {
-            const dy = targetRotY - o.rotation.y;
+            const dyRaw = targetRotY - o.rotation.y;
+            const dy = Math.atan2(Math.sin(dyRaw), Math.cos(dyRaw));
             const dx = targetRotX - o.rotation.x;
             o.rotation.y += dy * 0.12;
             o.rotation.x += dx * 0.12;
