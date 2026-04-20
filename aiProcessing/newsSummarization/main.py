@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from botocore.exceptions import ClientError
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
 
 #  Clients 
 # Bedrock stays in Tokyo — only region with Gemma 3 27B
@@ -52,11 +52,13 @@ def get_system_prompt() -> str:
 
 #  Deduplication
 def url_exists(url: str) -> bool:
-    response = table.scan(
-        FilterExpression=Attr("articleURL").eq(url),
+    response = table.query(
+        IndexName="articleURL-index",
+        KeyConditionExpression=Key("articleURL").eq(url),
+        Select="COUNT",
         Limit=1
     )
-    return len(response.get("Items", [])) > 0
+    return response["Count"] > 0
 
 
 #  Article Builder
@@ -187,7 +189,10 @@ def save_to_dynamodb(classified: dict, body: dict) -> str:
         # "promptArn":        PROMPT_ARN
     }
 
-    table.put_item(Item=item)
+    table.put_item(
+        Item=item,
+        ConditionExpression=Attr("articleURL").not_exists()
+    )
 
     print("✅ Saved to DynamoDB:")
     print("   eventId:          " + event_id)
@@ -266,6 +271,15 @@ def lambda_handler(event, context):
 
             success += 1
             print("✅ Done: " + article_url)
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                print("⚠️  Race-condition duplicate — skipping: " + article_url)
+                success += 1
+                continue
+            failed += 1
+            print("❌ Failed [" + article_url + "]: " + str(e))
+            raise  # Returns message to SQS for retry
 
         except Exception as e:
             failed += 1
