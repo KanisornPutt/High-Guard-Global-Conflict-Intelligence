@@ -184,6 +184,8 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
   const mountRef  = useRef(null);
   const api       = useRef({ rebuildMarkers: null, applyHighlight: null, selectedName: null, zoom: null });
   const [overlapPick, setOverlapPick] = useState(null);
+  const [unmappedCountries, setUnmappedCountries] = useState([]);
+  const [unmappedSelection, setUnmappedSelection] = useState("");
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -300,10 +302,21 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       markers.clear();
       markerSprites.length = 0;
       hitSprites.length = 0;
+      const unresolvedCountries = [];
+
       list.forEach(c => {
         const hasLatLon = Number.isFinite(c.lat) && Number.isFinite(c.lon);
-        const resolved = hasLatLon ? [c.lat, c.lon] : getCountryLatLon(c.name, allFeatures);
-        const [lat, lon] = resolved || [0, 0];
+        const hasDefinedCoords = c.hasDefinedCoords !== false;
+        const resolved = (hasLatLon && hasDefinedCoords)
+          ? [c.lat, c.lon]
+          : getCountryLatLon(c.name, allFeatures);
+
+        if (!resolved) {
+          unresolvedCountries.push(c);
+          return;
+        }
+
+        const [lat, lon] = resolved;
 
         const markerTex = new THREE.CanvasTexture(makeMarkerCanvas(c.severity));
         const markerMat = new THREE.SpriteMaterial({ map: markerTex, transparent: true, depthWrite: false, sizeAttenuation: true });
@@ -348,6 +361,12 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
         labelSp.position.copy(labelPos);
         markers.add(labelSp);
       });
+
+      setUnmappedCountries(
+        unresolvedCountries
+          .slice()
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+      );
     }
     api.current.rebuildMarkers = rebuildMarkers;
     rebuildMarkers(countries);
@@ -543,6 +562,11 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
     if (selectedCountry) api.current.applyHighlight?.(selectedCountry.name);
     else api.current.applyHighlight?.(null);
   }, [selectedCountry]);
+  useEffect(() => {
+    if (!unmappedSelection) return;
+    const stillExists = unmappedCountries.some((c) => c.name === unmappedSelection);
+    if (!stillExists) setUnmappedSelection("");
+  }, [unmappedCountries, unmappedSelection]);
 
   return (
     <div className="globe-wrap">
@@ -551,6 +575,36 @@ export default function Globe({ countries, selectedCountry, onCountryClick }) {
       {/* Top-left: clock */}
       <div className="globe-top-left">
         <LocalClock />
+
+        {unmappedCountries.length > 0 && (
+          <div className="unmapped-country-control">
+            <label className="unmapped-country-label" htmlFor="unmapped-country-select">
+              Unmapped countries ({unmappedCountries.length})
+            </label>
+            <select
+              id="unmapped-country-select"
+              className="unmapped-country-select"
+              value={unmappedSelection}
+              onChange={(e) => {
+                const nextName = e.target.value;
+                setUnmappedSelection(nextName);
+
+                if (!nextName) return;
+
+                const picked = unmappedCountries.find((c) => c.name === nextName);
+                if (picked) onCountryClick(picked);
+                setUnmappedSelection("");
+              }}
+            >
+              <option value="">Select a country…</option>
+              {unmappedCountries.map((country) => (
+                <option key={country.name} value={country.name}>
+                  {country.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Zoom controls */}

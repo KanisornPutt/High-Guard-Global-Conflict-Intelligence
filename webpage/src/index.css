@@ -315,6 +315,47 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
   letter-spacing: 0.06em;
 }
 
+.unmapped-country-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  background: rgba(9, 16, 32, 0.9);
+  border: 0.5px solid var(--border-bright);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+  padding: 10px;
+}
+
+.unmapped-country-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.unmapped-country-select {
+  width: 100%;
+  background: rgba(55, 138, 221, 0.08);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.3;
+  padding: 8px 10px;
+}
+
+.unmapped-country-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.unmapped-country-select option {
+  background: var(--bg-2);
+}
+
 .overlap-picker {
   position: absolute;
   z-index: 9;
@@ -591,6 +632,8 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
   }
   .country-panel.open { transform: translateY(0); }
   .globe-hint { display: none; }
+  .globe-top-left { left: 14px; top: 14px; max-width: calc(100% - 28px); }
+  .unmapped-country-control { padding: 8px; }
 
   .subscription-modal-overlay {
     padding: 14px;
@@ -608,13 +651,19 @@ html, body, #root { height: 100%; background: var(--bg); color: var(--text-prima
   top: 16px;
   left: 20px;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 40px);
+  z-index: 7;
 }
 .utc-clock {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 5px;
+  width: 100%;
   background: rgba(6,11,24,0.75);
   border: 0.5px solid var(--border-bright);
   border-radius: 6px;

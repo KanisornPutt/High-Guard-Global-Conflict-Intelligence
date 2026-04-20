@@ -162,6 +162,7 @@ def save_to_dynamodb(classified: dict, body: dict) -> str:
 
     event_id  = str(uuid.uuid4())
     timestamp = datetime.utcnow().isoformat()
+    ttl_value = int(time.time()) + 60 * 60 * 24 
 
     item = {
         #  Keys 
@@ -183,6 +184,7 @@ def save_to_dynamodb(classified: dict, body: dict) -> str:
         # "lat":              str(body.get("lat",  0)),
         # "long":             str(body.get("long", 0)),
         "fetchedAt":        body.get("fetchedAt",    timestamp),
+        "ttl":              ttl_value,
 
         #  Tracking 
         # "model":            MODEL_ID,

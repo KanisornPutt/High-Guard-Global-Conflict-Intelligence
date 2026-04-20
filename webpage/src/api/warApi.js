@@ -111,17 +111,22 @@ function normalizeCountryRecord(country) {
   if (!name) return null;
 
   const coords = COUNTRY_COORDS[name] || [];
+  const hasLookupCoords = Number.isFinite(coords[0]) && Number.isFinite(coords[1]);
   const lat = Number.isFinite(country.lat) ? country.lat : coords[0];
   const lon = Number.isFinite(country.lon)
     ? country.lon
     : Number.isFinite(country.long)
       ? country.long
       : coords[1];
+  const hasPayloadCoords = Number.isFinite(country.lat) && (Number.isFinite(country.lon) || Number.isFinite(country.long));
+  const looksLikeFallbackCoords = !hasLookupCoords && Number.isFinite(lat) && Number.isFinite(lon) && lat === 0 && lon === 0;
+  const hasDefinedCoords = hasLookupCoords || (hasPayloadCoords && !looksLikeFallbackCoords);
 
   return {
     name,
     lat,
     lon,
+    hasDefinedCoords,
     severity: normalizeSeverity(country.severity ?? country.overall_severity),
     articleCount: normalizeCount(
       country.articleCount,
