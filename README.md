@@ -54,6 +54,11 @@ This design separates data collection, AI reasoning, and presentation so each pa
 - News_fetcher/
   - News_fetcher.js Lambda source that ingests RSS/NewsAPI feeds and pushes records to SQS
 
+- infrastructure/
+  - Terraform modules and environment configurations for AWS resources
+  - Unified `deploy.sh` script for packaging and updating all components
+  - Detailed infrastructure docs in [infrastructure/README.md](infrastructure/README.md)
+
 - webpage/
   - React frontend (Vite) for the High Guard dashboard
   - Lambda handler examples under webpage/lambda/
@@ -95,7 +100,24 @@ This design separates data collection, AI reasoning, and presentation so each pa
 
 ## Quick start by component
 
-### 1) Frontend (webpage)
+### 1) Infrastructure & Deployment (Terraform)
+
+See [infrastructure/README.md](infrastructure/README.md) for full setup and deployment details.
+
+Quick commands:
+
+```bash
+# 1. Deploy AWS Resources (DynamoDB, SQS, API Gateway, etc.)
+cd infrastructure/terraform/envs/dev
+terraform init
+terraform apply
+
+# 2. Deploy Application Code (Lambdas + Frontend)
+cd ../../../..
+./infrastructure/deploy.sh --all
+```
+
+### 2) Frontend (webpage)
 
 See [webpage/README.md](webpage/README.md).
 
@@ -132,11 +154,10 @@ Required runtime env (minimum):
 
 ## Suggested deployment order
 
-1. Create DynamoDB tables (newsSummary, countrySummary).
-2. Deploy News Fetcher Lambda + SQS queue.
-3. Deploy aiProcessing Lambdas and configure Bedrock prompt ARNs.
-4. Deploy API/Lambda endpoints used by frontend.
-5. Configure frontend .env and deploy webpage static build.
+1. **Infrastructure**: Deploy AWS resources using Terraform in `infrastructure/terraform/envs/dev`.
+2. **Prompts**: Sync Bedrock prompts using `./infrastructure/deploy.sh --prompts`.
+3. **Application**: Deploy all Lambda functions and the frontend using `./infrastructure/deploy.sh --all`.
+4. **Verification**: Access the `website_url` provided by the Terraform output.
 
 ## Environment and region notes
 
